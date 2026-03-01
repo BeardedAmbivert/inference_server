@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     device: str = "mps" if torch.backends.mps.is_available() else "cpu"
     host: str = "0.0.0.0"
     port: int = 8000
+    max_batch_size: int = 32
+    max_wait_ms: int = 1
 
 
 settings = Settings()

@@ -3,9 +3,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 
 from .schemas import PredictRequest, PredictResponse
-from .model import load_model, predict
+from .model import load_model
 from .config import settings
-
+from .batching import DynamicBatcher
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -19,11 +19,11 @@ async def lifespan(app: FastAPI):
     # Startup
     model = load_model(settings.model_name, settings.device)
     app.state.model = model
+    app.state.batcher = DynamicBatcher(model, settings.max_batch_size, settings.max_wait_ms)
+    app.state.batcher.start()
     print(f"model loaded on {settings.device}")
-    # raise NotImplementedError  # Replace with your startup logic
     yield
-    # Shutdown (optional cleanup here)
-    # model.clear()
+    await app.state.batcher.stop()
 
 
 app = FastAPI(
@@ -49,10 +49,9 @@ async def health():
 @app.post("/predict", response_model=PredictResponse)
 async def predict_endpoint(request: Request, body: PredictRequest):
     """Generate embeddings for input texts."""
-    model = request.app.state.model
-    result = predict(model, body.texts)
+    result = await app.state.batcher.submit(body.texts)
     return {
         "embeddings": result,
-        "dim": model.get_sentence_embedding_dimension(),
+        "dim": app.state.model.get_sentence_embedding_dimension(),
         "num_texts": len(body.texts)
     }
