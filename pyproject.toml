@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.133.1",
+    "httpx>=0.28.1",
     "pydantic-settings>=2.13.1",
     "sentence-transformers>=5.2.3",
     "torch>=2.10.0",
