@@ -1,0 +1,13 @@
+[project]
+name = "inference-server"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.133.1",
+    "pydantic-settings>=2.13.1",
+    "sentence-transformers>=5.2.3",
+    "torch>=2.10.0",
+    "uvicorn>=0.41.0",
+]
