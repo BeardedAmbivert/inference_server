@@ -1,0 +1,11 @@
+.venv
+__pycache__
+*.py[oc]
+.git
+.gitignore
+.dockerignore
+.claude
+CLAUDE.md
+project-summary.md
+scripts/
+*.md

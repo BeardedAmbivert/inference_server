@@ -12,3 +12,4 @@ wheels/
 # AI agent files
 .claude
 CLAUDE.md
+project-summary.md
