@@ -1,3 +1,15 @@
+---
+title: Inference Server
+emoji: 👀
+colorFrom: yellow
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+short_description: inference server for an embedding model
+---
+
 # inference_server
 
 Embedding inference server built with FastAPI + PyTorch serving `all-MiniLM-L6-v2` via HTTP. Supports dynamic batching for concurrent requests.
