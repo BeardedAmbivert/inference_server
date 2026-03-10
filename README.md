@@ -33,9 +33,9 @@ Image uses CPU-only PyTorch with the model baked in (no runtime download).
 ## Endpoints
 
 - `GET /health` — health check
-- `POST /predict` — generate embeddings
+- `POST /embed` — generate embeddings
   ```bash
-  curl -X POST http://localhost:7860/predict \
+  curl -X POST http://localhost:7860/embed \
     -H "Content-Type: application/json" \
     -d '{"texts": ["hello world"]}'
   ```

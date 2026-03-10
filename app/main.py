@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 
-from .schemas import PredictRequest, PredictResponse
+from .schemas import EmbedRequest, EmbedResponse
 from .model import load_model
 from .config import settings
 from .batching import DynamicBatcher
@@ -46,8 +46,8 @@ async def health():
     }
 
 
-@app.post("/predict", response_model=PredictResponse)
-async def predict_endpoint(request: Request, body: PredictRequest):
+@app.post("/embed", response_model=EmbedResponse)
+async def embed_endpoint(request: Request, body: EmbedRequest):
     """Generate embeddings for input texts."""
     result = await app.state.batcher.submit(body.texts)
     return {

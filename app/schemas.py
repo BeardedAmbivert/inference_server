@@ -1,8 +1,8 @@
 from pydantic import BaseModel
 
 
-class PredictRequest(BaseModel):
-    """Request body for the /predict endpoint.
+class EmbedRequest(BaseModel):
+    """Request body for the /embed endpoint.
 
     Consider adding validation:
     - Non-empty list (min_length=1)
@@ -12,8 +12,8 @@ class PredictRequest(BaseModel):
     texts: list[str]
 
 
-class PredictResponse(BaseModel):
-    """Response body for the /predict endpoint."""
+class EmbedResponse(BaseModel):
+    """Response body for the /embed endpoint."""
 
     embeddings: list[list[float]]
     dim: int | None

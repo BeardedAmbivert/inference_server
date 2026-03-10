@@ -15,7 +15,7 @@ import time
 import httpx
 import math
 
-URL = "http://localhost:8000/predict"
+URL = "http://localhost:8000/embed"
 PAYLOAD = {"texts": ["hello world", "benchmark test"]}
 N_REQUESTS = 20
 
