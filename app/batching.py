@@ -58,7 +58,7 @@ class DynamicBatcher:
             batch.append(first_item)
             while len(batch) < self._max_batch_size:
                 try:
-                    item = await asyncio.wait_for(self._queue.get(), timeout=self._max_wait_ms)
+                    item = await asyncio.wait_for(self._queue.get(), timeout=self._max_wait_ms / 1000)
                     batch.append(item)
                 except asyncio.TimeoutError:
                     break
