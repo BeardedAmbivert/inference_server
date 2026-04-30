@@ -17,7 +17,8 @@ async def lifespan(app: FastAPI):
     Docs: https://fastapi.tiangolo.com/advanced/events/#lifespan
     """
     # Startup
-    model = load_model(settings.model_name, settings.device)
+    model_path = settings.onnx_model_path if settings.backend == "onnx" else settings.model_name
+    model = load_model(model_path, settings.device, settings.backend)
     app.state.model = model
     app.state.batcher = DynamicBatcher(model, settings.max_batch_size, settings.max_wait_ms)
     app.state.batcher.start()

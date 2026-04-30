@@ -1,6 +1,7 @@
 from sentence_transformers import SentenceTransformer
 
-def load_model(model_name: str, device: str) -> SentenceTransformer:
+
+def load_model(model_name: str, device: str, backend: str | None = None) -> SentenceTransformer:
     """Load a SentenceTransformer model onto the specified device.
 
     Args:
@@ -10,7 +11,14 @@ def load_model(model_name: str, device: str) -> SentenceTransformer:
     Returns:
         Loaded SentenceTransformer model ready for inference
     """
-    model = SentenceTransformer(model_name, device=device)
+    if backend == "onnx":
+        model = SentenceTransformer(
+            model_name,
+            backend="onnx",
+            model_kwargs={"file_name": "onnx/model_O3.onnx"}
+        )
+    else:
+        model = SentenceTransformer(model_name, device=device)
     return model
 
 

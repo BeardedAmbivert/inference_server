@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Model exports
+models/
+
 # AI agent files
 .claude
 CLAUDE.md

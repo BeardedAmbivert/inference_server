@@ -9,8 +9,10 @@ class Settings(BaseSettings):
     namespaced env vars like INFERENCE_MODEL_NAME.
     """
 
-    model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    onnx_model_path: str = "models/minilm-onnx"
+    model_name: str | None = "sentence-transformers/all-MiniLM-L6-v2"
     device: str = "mps" if torch.backends.mps.is_available() else "cpu"
+    backend: str | None = None
     host: str = "0.0.0.0"
     port: int = 8000
     max_batch_size: int = 32
