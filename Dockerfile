@@ -10,8 +10,8 @@ WORKDIR /app
 # Copy dependency files first for Docker layer caching
 COPY pyproject.toml uv.lock ./
 
-# Install CPU-only deps
-RUN uv sync --locked
+# Install CPU-only deps (exclude dev tools + optional extras from the serving image)
+RUN uv sync --locked --no-dev
 RUN uv run python -c \
     "from sentence_transformers import SentenceTransformer; \
     SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
