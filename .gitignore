@@ -16,3 +16,6 @@ models/
 .claude
 CLAUDE.md
 project-summary.md
+
+# macOS
+.DS_Store

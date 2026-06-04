@@ -12,7 +12,17 @@ short_description: embedding inference server with dynamic batching
 
 # inference_server
 
+![Python](https://img.shields.io/badge/python-3.12-blue) ![License](https://img.shields.io/badge/license-MIT-green) [![Live on HF Spaces](https://img.shields.io/badge/demo-Hugging%20Face%20Spaces-yellow)](https://beardedambivert-inference-server.hf.space)
+
 Embedding inference server with FastAPI, ONNX Runtime support, and dynamic batching for latency-throughput tradeoff experiments.
+
+**Live demo** — the server runs on Hugging Face Spaces:
+
+```bash
+curl -X POST https://beardedambivert-inference-server.hf.space/embed \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["hello world"]}'
+```
 
 Highlights:
 
@@ -30,8 +40,14 @@ This project explores a single-process serving design where requests enter an as
 
 ## Architecture
 
-```text
-Client -> FastAPI API -> Request Queue -> DynamicBatcher -> Model Runtime -> Response Futures
+```mermaid
+flowchart LR
+    C[Client] -->|POST /embed| API[FastAPI endpoint]
+    API -->|submit + Future| Q[(asyncio queue)]
+    Q --> W[Batcher worker]
+    W -->|flush on size or time| M[model.encode in thread pool]
+    M -->|split by request| F[resolve futures]
+    F -->|embeddings| C
 ```
 
 Request lifecycle:
@@ -65,20 +81,27 @@ Tradeoff:
 
 ## Benchmarks
 
-Benchmark results are not published yet. The repository includes `scripts/bench.py` to compare sequential and concurrent request patterns, but reproducible results should be generated before claiming throughput or latency improvements.
+Measured on Apple Silicon (macOS, arm64) with `all-MiniLM-L6-v2`, 500 requests at concurrency 32, one short sentence per request.
 
-Planned result format:
+![Dynamic batching sweep](benchmarks/batching-sweep.png)
 
-| Mode | Batch Size | p50 Latency | p95 Latency | Throughput |
-| --- | ---: | ---: | ---: | ---: |
-| Sequential | Not measured | Not measured | Not measured | Not measured |
-| Concurrent | Not measured | Not measured | Not measured | Not measured |
+- **Batching is the win:** at a fixed concurrency of 32, raising the batch size from 1 to 32 roughly **halves p50 latency** and lifts throughput **~45–55%**.
+- **Serving overhead is ~1.4 ms/request** over the raw `model.encode` floor.
+- **MPS and ONNX are not faster here** — for this tiny model and tiny inputs the workload is overhead-bound, so the Apple GPU matches CPU and ONNX-CPU ties PyTorch-CPU. (Wins would need INT8 quantization and/or larger inputs.)
 
-Run the benchmark after starting the server:
+PyTorch on CPU, concurrency 32:
+
+| Max batch size | p50 latency | Throughput |
+| ---: | ---: | ---: |
+| 1 (no batching) | 199.5 ms | 159.6 req/s |
+| 32 | 103.7 ms | 231.1 req/s |
+
+Full 16-run matrix and per-config numbers: [`benchmarks/README.md`](benchmarks/README.md). Why the numbers look this way, plus the fair-comparison methodology: [`benchmarks/ANALYSIS.md`](benchmarks/ANALYSIS.md).
+
+Regenerate everything with one command (starts/stops a server per config):
 
 ```bash
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
-uv run python scripts/bench.py
+uv run python scripts/run_matrix.py
 ```
 
 ## Design Decisions
@@ -109,7 +132,6 @@ Current limitations:
 
 ## Future Improvements
 
-- Add reproducible benchmark runs across batch sizes, concurrency levels, and backend modes.
 - Add bounded queue capacity with explicit rejection or timeout behavior.
 - Expose metrics for request rate, latency distribution, batch size distribution, and model errors.
 - Add tests for batching, request-to-response mapping, failure propagation, and shutdown behavior.

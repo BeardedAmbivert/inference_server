@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "timestamp_utc": "2026-06-04T07:25:09.608765+00:00",
+    "python_version": "3.12.11",
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "label": "naive-cpu",
+    "model_name": "sentence-transformers/all-MiniLM-L6-v2",
+    "device": "cpu",
+    "requests": 500,
+    "texts_per_request": 1,
+    "warmup": 50
+  },
+  "summary": {
+    "total_requests": 500,
+    "total_sequences": 500,
+    "wall_time_seconds": 2.781904499999655,
+    "throughput_sequences_per_sec": 179.73298508272373,
+    "avg_latency_ms": 5.5627879356907215,
+    "p50_latency_ms": 5.479374995047692,
+    "p95_latency_ms": 6.063125001674052,
+    "p99_latency_ms": 6.54104100249242
+  }
+}

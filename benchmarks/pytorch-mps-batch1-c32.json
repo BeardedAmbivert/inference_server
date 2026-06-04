@@ -1,0 +1,31 @@
+{
+  "metadata": {
+    "timestamp_utc": "2026-06-04T07:26:36.179171+00:00",
+    "python_version": "3.12.11",
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "label": "pytorch-mps-batch1-c32",
+    "backend": "pytorch",
+    "device": "mps",
+    "server_batch_size": 1,
+    "url": "http://127.0.0.1:8000/embed",
+    "requests": 500,
+    "concurrency": 32,
+    "texts_per_request": 1,
+    "warmup": 50,
+    "timeout_seconds": 30.0
+  },
+  "summary": {
+    "total_requests": 500,
+    "successful_requests": 500,
+    "failed_requests": 0,
+    "successful_sequences": 500,
+    "wall_time_seconds": 3.4682723750011064,
+    "throughput_rps": 144.16399461701462,
+    "throughput_sequences_per_sec": 144.16399461701462,
+    "avg_latency_ms": 215.19578452008136,
+    "p50_latency_ms": 220.93700000550598,
+    "p95_latency_ms": 225.24287499982165,
+    "p99_latency_ms": 228.16058299940778
+  },
+  "failures": []
+}
