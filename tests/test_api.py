@@ -26,9 +26,34 @@ def test_health(client):
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == "ok"
+    assert body["status"] == "ready"
+    assert body["model_loaded"] is True
+    assert body["worker_alive"] is True
+    assert body["queue_depth"] == 0
+    assert body["inflight"] == 0
     assert "model" in body
     assert "device" in body
+
+
+def test_health_not_ready_returns_503(client, monkeypatch):
+    """/health returns 503 when the batch worker is not alive."""
+    monkeypatch.setattr(app.state.batcher, "is_running", lambda: False)
+    resp = client.get("/health")
+
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "not ready"
+
+
+def test_request_id_generated(client):
+    """Every response carries an X-Request-ID header."""
+    resp = client.get("/health")
+    assert resp.headers.get("X-Request-ID")
+
+
+def test_request_id_echoed(client):
+    """An inbound X-Request-ID is echoed back on the response."""
+    resp = client.get("/health", headers={"X-Request-ID": "abc123"})
+    assert resp.headers.get("X-Request-ID") == "abc123"
 
 
 def test_embed(client, make_model):

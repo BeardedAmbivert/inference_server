@@ -43,6 +43,7 @@ class DynamicBatcher:
         self._request_timeout_s = request_timeout_s
         self._queue = asyncio.Queue(maxsize=max_queue_size)
         self._worker_task = None
+        self._inflight = 0
 
     def start(self) -> None:
         """Launch the background worker as an asyncio task."""
@@ -64,6 +65,18 @@ class DynamicBatcher:
         except asyncio.QueueEmpty:
             pass
 
+    def is_running(self) -> bool:
+        """True when the background worker task is alive (used by the readiness check)."""
+        return self._worker_task is not None and not self._worker_task.done()
+
+    def queue_depth(self) -> int:
+        """Number of requests currently waiting in the queue."""
+        return self._queue.qsize()
+
+    def inflight(self) -> int:
+        """Number of accepted requests still awaiting their result."""
+        return self._inflight
+
     async def submit(self, texts: list[str]) -> list[list[float]]:
         """Submit a request for batched inference. Called by the /embed endpoint.
 
@@ -76,10 +89,13 @@ class DynamicBatcher:
             self._queue.put_nowait((texts, future))
         except asyncio.QueueFull:
             raise QueueFullError("request queue is full")
+        self._inflight += 1
         try:
             return await asyncio.wait_for(future, timeout=self._request_timeout_s)
         except asyncio.TimeoutError:
             raise RequestTimeoutError("request timed out before inference completed")
+        finally:
+            self._inflight -= 1
 
     async def _worker(self) -> None:
         """Background loop that collects and processes batches."""

@@ -122,9 +122,10 @@ Current behavior:
 - Each request has a deadline; if inference does not complete in time the client receives `504`.
 - Model inference errors are propagated to every request future in the failed batch and returned to the client as a sanitized `500` (no stack trace leak).
 - Shutdown cancels the worker task and marks queued requests with cancellation errors.
-- `/health` reports service status, configured model name, and device.
+- `/health` is a readiness probe (`200`/`503`) that also reports live queue depth and in-flight counts.
+- Every request gets a correlation ID — taken from an inbound `X-Request-ID` header or generated, echoed back on the response — and is logged as structured JSON (method, path, status, `duration_ms`).
 
-The limits are configurable via environment variables (see `app/config.py`): `MAX_TEXTS_PER_REQUEST`, `MAX_CHARS_PER_TEXT`, `MAX_QUEUE_SIZE`, `REQUEST_TIMEOUT_S`.
+The limits and log level are configurable via environment variables (see `app/config.py`): `MAX_TEXTS_PER_REQUEST`, `MAX_CHARS_PER_TEXT`, `MAX_QUEUE_SIZE`, `REQUEST_TIMEOUT_S`, `LOG_LEVEL`.
 
 Current limitations:
 
@@ -199,17 +200,24 @@ curl -X POST http://localhost:7860/embed \
 
 ### `GET /health`
 
-Returns service status and basic model configuration.
+Readiness probe. Returns `200` when the model is loaded and the batch worker is alive, otherwise `503`. The body also reports live queue depth and in-flight request counts.
 
-Example response:
+Example response (`200`):
 
 ```json
 {
-  "status": "ok",
+  "status": "ready",
   "model": "sentence-transformers/all-MiniLM-L6-v2",
-  "device": "cpu"
+  "device": "cpu",
+  "model_loaded": true,
+  "worker_alive": true,
+  "queue_depth": 0,
+  "inflight": 0,
+  "max_queue_size": 1000
 }
 ```
+
+When the server is not ready the same shape is returned with `"status": "not ready"` and HTTP `503`.
 
 ### `POST /embed`
 

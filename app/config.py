@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     port: int = 8000
     max_batch_size: int = 32
     max_wait_ms: int = 500
+    log_level: str = "INFO"
 
     # Request limits & backpressure
     max_texts_per_request: int = 256  # benchmark sends 1 text/request; generous cap
