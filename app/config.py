@@ -18,5 +18,11 @@ class Settings(BaseSettings):
     max_batch_size: int = 32
     max_wait_ms: int = 500
 
+    # Request limits & backpressure
+    max_texts_per_request: int = 256  # benchmark sends 1 text/request; generous cap
+    max_chars_per_text: int = 8192
+    max_queue_size: int = 1000  # bounds memory; queue peaks ~32-64 under the c32 benchmark
+    request_timeout_s: float = 30.0
+
 
 settings = Settings()

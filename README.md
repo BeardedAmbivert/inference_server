@@ -117,24 +117,24 @@ uv run python scripts/run_matrix.py
 
 Current behavior:
 
-- Model inference errors are propagated to every request future in the failed batch.
+- Requests are validated at the edge: an empty `texts` list, too many texts per request, or an over-long text return `422` before any inference runs.
+- The request queue is bounded. When it is full the server sheds load with `503` instead of growing without limit.
+- Each request has a deadline; if inference does not complete in time the client receives `504`.
+- Model inference errors are propagated to every request future in the failed batch and returned to the client as a sanitized `500` (no stack trace leak).
 - Shutdown cancels the worker task and marks queued requests with cancellation errors.
 - `/health` reports service status, configured model name, and device.
 
+The limits are configurable via environment variables (see `app/config.py`): `MAX_TEXTS_PER_REQUEST`, `MAX_CHARS_PER_TEXT`, `MAX_QUEUE_SIZE`, `REQUEST_TIMEOUT_S`.
+
 Current limitations:
 
-- The request queue is in-memory and unbounded.
-- There is no explicit request timeout policy at the API layer.
-- There is no queue overflow or backpressure strategy yet.
 - The worker model is single-process and single-batcher.
 - Persistent metrics are not exposed yet.
 - ONNX mode requires an exported ONNX model directory under `models/minilm-onnx`.
 
 ## Future Improvements
 
-- Add bounded queue capacity with explicit rejection or timeout behavior.
 - Expose metrics for request rate, latency distribution, batch size distribution, and model errors.
-- Add tests for batching, request-to-response mapping, failure propagation, and shutdown behavior.
 - Clarify multi-worker deployment behavior and scaling limits.
 - Add optional caching for repeated texts or use-case-specific workloads.
 
@@ -232,3 +232,12 @@ Example response, with the embedding shortened for readability:
 ```
 
 The `embeddings` array contains one embedding vector per input text.
+
+Error responses:
+
+| Status | When |
+| --- | --- |
+| `422` | Invalid input — empty `texts`, more than `MAX_TEXTS_PER_REQUEST` texts, an empty text, or a text over `MAX_CHARS_PER_TEXT`. |
+| `503` | Server overloaded — the request queue is at capacity (`MAX_QUEUE_SIZE`). |
+| `504` | Inference did not complete within `REQUEST_TIMEOUT_S`. |
+| `500` | Unexpected inference error (details are not leaked to the client). |

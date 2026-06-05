@@ -1,11 +1,12 @@
 """Unit tests for DynamicBatcher (app/batching.py)."""
 
 import asyncio
+import contextlib
 import threading
 
 import pytest
 
-from app.batching import DynamicBatcher
+from app.batching import DynamicBatcher, QueueFullError, RequestTimeoutError
 
 
 async def test_size_trigger_flush(make_model):
@@ -96,3 +97,50 @@ async def test_shutdown_drains_queued_requests(make_model):
         a.cancel()
         with pytest.raises(asyncio.CancelledError):
             await a
+
+
+async def test_queue_full_rejects(make_model):
+    """A submit beyond the queue's capacity is rejected immediately with QueueFullError."""
+    gate = threading.Event()
+    # batch_size=1: the worker pulls request A and blocks inside encode(); max_queue_size=1
+    # leaves room for exactly one queued request (B) before the next submit is rejected.
+    batcher = DynamicBatcher(
+        make_model(gate=gate), max_batch_size=1, max_wait_ms=50, max_queue_size=1
+    )
+    batcher.start()
+    a = asyncio.create_task(batcher.submit(["A"]))
+    await asyncio.sleep(0.1)  # worker pulls A and blocks in the executor; queue is now empty
+    b = asyncio.create_task(batcher.submit(["B"]))
+    await asyncio.sleep(0.05)  # B is now sitting in the queue (at capacity)
+    try:
+        with pytest.raises(QueueFullError):
+            await batcher.submit(["C"])  # queue at capacity -> rejected synchronously
+    finally:
+        gate.set()  # unblock the worker thread
+        await batcher.stop()
+        for task in (a, b):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+
+
+async def test_request_timeout(make_model):
+    """A request not served within request_timeout_s raises RequestTimeoutError, and the
+    worker survives (the cancelled future is skipped) to serve later requests."""
+    gate = threading.Event()
+    batcher = DynamicBatcher(
+        make_model(gate=gate), max_batch_size=1, max_wait_ms=50, request_timeout_s=0.1
+    )
+    batcher.start()
+    try:
+        with pytest.raises(RequestTimeoutError):
+            await batcher.submit(["slow"])
+
+        assert not batcher._worker_task.done()  # guard prevented a worker crash
+        gate.set()  # let the stuck inference finish; the worker skips the cancelled future
+
+        result = await asyncio.wait_for(batcher.submit(["after"]), timeout=5)
+        assert result == make_model().encode(["after"]).tolist()
+    finally:
+        gate.set()
+        await batcher.stop()
