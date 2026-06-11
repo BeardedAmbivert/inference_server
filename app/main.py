@@ -25,7 +25,12 @@ async def lifespan(app: FastAPI):
     # Startup
     configure_logging(settings.log_level)
     model_path = settings.onnx_model_path if settings.backend == "onnx" else settings.model_name
-    model = load_model(model_path, settings.device, settings.backend)
+    model = load_model(
+        model_path,
+        settings.device,
+        settings.backend,
+        onnx_file_name=settings.onnx_file_name,
+    )
     app.state.model = model
     app.state.batcher = DynamicBatcher(
         model,

@@ -1,12 +1,20 @@
 from sentence_transformers import SentenceTransformer
 
 
-def load_model(model_name: str, device: str, backend: str | None = None) -> SentenceTransformer:
+def load_model(
+    model_name: str,
+    device: str,
+    backend: str | None = None,
+    onnx_file_name: str = "onnx/model_O3.onnx",
+) -> SentenceTransformer:
     """Load a SentenceTransformer model onto the specified device.
 
     Args:
         model_name: HuggingFace model ID (e.g. "sentence-transformers/all-MiniLM-L6-v2")
         device: torch device string ("cpu", "mps", "cuda")
+        backend: "onnx" to load the ONNX Runtime backend, otherwise the default torch backend
+        onnx_file_name: which ONNX graph to load under the model dir (e.g. the O3-optimized
+            fp32 export or "onnx/model_int8.onnx" for the quantized model)
 
     Returns:
         Loaded SentenceTransformer model ready for inference
@@ -15,7 +23,7 @@ def load_model(model_name: str, device: str, backend: str | None = None) -> Sent
         model = SentenceTransformer(
             model_name,
             backend="onnx",
-            model_kwargs={"file_name": "onnx/model_O3.onnx"}
+            model_kwargs={"file_name": onnx_file_name}
         )
     else:
         model = SentenceTransformer(model_name, device=device)
