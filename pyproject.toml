@@ -19,6 +19,9 @@ dependencies = [
 plot = [
     "matplotlib>=3.9",
 ]
+bench = [
+    "datasets>=3",
+]
 
 [dependency-groups]
 dev = [

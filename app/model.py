@@ -30,15 +30,16 @@ def load_model(
     return model
 
 
-def predict(model: SentenceTransformer, texts: list[str]) -> list[list[float]]:
+def predict(model: SentenceTransformer, texts: list[str], batch_size: int = 32) -> list[list[float]]:
     """Generate embeddings for a list of text strings.
 
     Args:
         model: Loaded SentenceTransformer model
         texts: List of strings to embed
+        batch_size: Texts encoded per forward pass (model.encode default is 32)
 
     Returns:
         List of embedding vectors, each a list of floats
     """
-    embeddings = model.encode(texts).tolist()
+    embeddings = model.encode(texts, batch_size=batch_size).tolist()
     return embeddings

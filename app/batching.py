@@ -116,10 +116,13 @@ class DynamicBatcher:
                 all_texts.extend(texts)
                 sizes.append(sizes[-1] + len(texts))
 
-            # run inference
+            # run inference: encode the whole aggregated batch in one pass (batch_size =
+            # max_batch_size), instead of model.encode's hidden default of 32.
             loop = asyncio.get_event_loop()
             try:
-                all_embeddings = await loop.run_in_executor(None, predict, self._model, all_texts)
+                all_embeddings = await loop.run_in_executor(
+                    None, predict, self._model, all_texts, self._max_batch_size
+                )
 
                 # split results back and resolve futures (skip ones already timed out/cancelled)
                 for idx, (_, future) in enumerate(batch):

@@ -1,179 +1,155 @@
-# Benchmark Analysis & Run Plan
+# Benchmarks - methodology, results & analysis
 
-Why the current latency numbers look the way they do, why direct comparisons
-between them mislead, and the full set of runs needed to make honest claims.
+How the embedding server behaves under two realistic workloads on real data, why the
+numbers look the way they do, and the earlier synthetic-input study kept for comparison.
 
-> Status: analysis + planned runs. The runs in the matrix below have **not** been
-> executed yet. The only results captured so far are `naive-direct.json`,
-> `pytorch-batch32-c32.json`, and `onnx-batch32-c32.json`.
+- **Machine:** macOS 26.5, Apple Silicon (arm64), Python 3.12.11
+- **Model:** `sentence-transformers/all-MiniLM-L6-v2` (384-dim, 256-token max sequence)
+- **Data:** [BeIR/nfcorpus](https://huggingface.co/datasets/BeIR/nfcorpus) - short medical **queries**
+  (median 17 chars) and long **corpus** abstracts (median ~1.6k chars, capped at 8192). Sampled with
+  `scripts/prepare_dataset.py`.
+- Single run per config (not averaged) - treat mid-sweep points as indicative, not precise.
 
----
-
-## TL;DR
-
-- The three existing benchmarks measure **different things**, so "which is fastest"
-  is the wrong question to ask of them as-is.
-- `naive_bench` has the lowest latency (6.3 ms p50) only because it runs **one call
-  at a time with no queue and no network** — but it also has the **lowest throughput**
-  (145 seq/s). That's not "winning"; it's the single-user floor.
-- The server has higher per-request latency (115 ms p50) **and** higher throughput
-  (210 req/s). Trading latency for throughput under load is the entire point of batching.
-- ONNX wasn't faster mainly because the comparison was **not apples-to-apples**:
-  PyTorch ran on the **MPS GPU** while ONNX ran on **CPU**, the workload is
-  **overhead-bound** (so the compute engine barely matters), and the ONNX model is
-  **FP32, not quantized**, on tiny inputs.
+> Why real data: SentenceTransformers warns that backend performance differs strongly between short
+> and long texts and recommends benchmarking your own distribution. The original study (below) used
+> identical 3-word synthetic inputs, which is purely **overhead-bound** - it can't show where the
+> compute backend or batch size actually matters. nfcorpus gives both regimes.
 
 ---
 
-## What each existing benchmark actually measures
+## Two workloads
 
-| Benchmark | Stack exercised | Concurrency | Device | p50 | Throughput |
-| --- | --- | ---: | --- | ---: | ---: |
-| `naive-direct.json` | model only (`model.encode`) | 1 (serial) | MPS (GPU) | 6.3 ms | 145 seq/s |
-| `pytorch-batch32-c32.json` | full HTTP + FastAPI + batcher | 32 | MPS (GPU) | 115 ms | 210 req/s |
-| `onnx-batch32-c32.json` | full HTTP + FastAPI + batcher | 32 | **CPU** (ORT default) | 132 ms | 195 req/s |
+| Workload | Inputs | What varies | Concurrency | Measures |
+| --- | --- | --- | --- | --- |
+| **Latency** | short queries | texts/request = 1 / 8 / 32 | 1 | per-request p50/p95 |
+| **Throughput** | long docs | encode batch = 128 / 256 / 512 | = batch size | sequences/sec |
 
-Key code facts behind this:
-- `scripts/naive_bench.py` calls `model.encode([text])` one text at a time in a plain
-  loop — no server involved. Defaults to `mps` (`DEFAULT_DEVICE`).
-- `scripts/bench.py` fires HTTP requests at the running server with `--concurrency`
-  in flight; it measures **end-to-end per-request wall time** (send → network → queue →
-  batch → infer → response). Its `--server-batch-size` flag is **metadata only** — the
-  real batch size/device/backend are set on the **server** via env vars
-  (`MAX_BATCH_SIZE`, `DEVICE`, `BACKEND`) at startup (`app/config.py`).
-- `app/model.py`: the PyTorch path passes `device` (→ MPS here); the **ONNX path does
-  not pass a device**, so ONNX Runtime falls back to the **CPU** provider on Mac ARM.
+Both run through the real `POST /embed` path. The encode batch size equals the server's
+`MAX_BATCH_SIZE` (the worker encodes the whole aggregated batch in one pass - see
+[Methodology](#methodology--fair-comparison)), so the throughput sweep is just `MAX_BATCH_SIZE`
+driven at `concurrency = batch`. Latency runs use a tiny `MAX_WAIT_MS` so the batcher's time-trigger
+doesn't add idle wait at concurrency 1.
 
 ---
 
-## Why the numbers look the way they do
+## Latency workload - short queries, concurrency 1
 
-### 1. Naive looks "fast" but is not winning
-`naive_bench` times a single tiny sentence with **nobody in line**. Because it's strictly
-serial, throughput is just `1 / latency` ≈ 145 seq/s — the *lowest* of the three. It's the
-best case for one user and the worst case for utilization.
+p50 latency (ms), with sequence throughput (seq/s) in brackets:
 
-### 2. Server: latency up, throughput up (the batching trade)
-With 32 requests in flight, each request waits ~one batch cycle, so per-request latency
-rises to ~115 ms. But ~32 are served per cycle, so throughput rises to ~210 req/s. Raising
-per-request latency while raising aggregate throughput **is** what dynamic batching is for.
+| Backend | tpr = 1 | tpr = 8 | tpr = 32 |
+| --- | ---: | ---: | ---: |
+| pytorch-cpu | 14.4 ms (69) | 19.1 ms (426) | 28.5 ms (1111) |
+| pytorch-mps | 17.5 ms (40) | 20.1 ms (377) | 25.4 ms (1201) |
+| onnx-fp32 | **12.4 ms (80)** | 19.0 ms (415) | 45.2 ms (690) |
+| onnx-int8 | 22.7 ms (44) | 34.7 ms (227) | 83.7 ms (364) |
 
-### 3. Why ONNX wasn't faster
-1. **Device confound (biggest).** PyTorch ran on the **MPS GPU**; ONNX ran on **CPU**.
-   ONNX-on-CPU losing to PyTorch-on-GPU is expected and says nothing about ONNX itself.
-2. **Overhead-bound, not compute-bound (Amdahl).** Wall time 2.38 s ÷ ~16 waves ≈ ~150 ms
-   per batch cycle, but the batched GPU inference of 32 short sentences is only tens of ms.
-   The rest is HTTP, JSON serialization of 32×384 floats, `.tolist()`, asyncio scheduling,
-   and the GIL serializing result-splitting. ONNX only speeds the *compute* slice, which
-   isn't the bottleneck — so it barely moves the total. (Same reason batching only bought
-   ~1.45×: overhead dominates, not model math.)
-3. **No quantization + tiny inputs.** ONNX's CPU wins usually come from **INT8
-   quantization** and from **larger models / longer texts / bigger batches**. This export
-   is O3 graph optimization but still FP32, and every input is one ultra-short sentence —
-   the worst case for showcasing ONNX.
+1. **Packing texts per request is the dominant latency-amortization lever.** Going from 1 to 32 texts
+   per request lifts throughput ~16× (pytorch-cpu 69 → 1111 seq/s) while p50 only doubles - fixed
+   per-request overhead (HTTP, JSON, scheduling) is spread over more sequences.
+2. **Different winners at different sizes.** ONNX-fp32 is fastest for a single short query (12.4 ms);
+   PyTorch (CPU/MPS) wins at 32 texts/request (~25–28 ms, ~1100–1200 seq/s).
+3. **INT8 is the slowest backend at every size** - see the INT8 finding below.
 
 ---
 
-## The missing baseline: "naive, but on the server"
+## Throughput workload - long docs, concurrency = batch
 
-`naive_bench` (no server) is a *pure model floor*. It is **not** the right thing to compare
-the server against, because it differs from the server on three axes simultaneously:
-concurrency (1 vs 32), serving stack (none vs full), and — for ONNX — device.
+Sequence throughput (seq/s); higher is better. p50 here is multi-second by design (requests queue in
+deep waves at `concurrency = batch` - that is the latency *cost* of maximizing throughput):
 
-To isolate one variable at a time we need **three** distinct baselines, not one:
+| Backend | bs = 128 | bs = 256 | bs = 512 |
+| --- | ---: | ---: | ---: |
+| pytorch-cpu | 39.4 | 44.0 | 58.6 |
+| pytorch-mps | 40.2 | 48.0 | **68.0** |
+| onnx-fp32 | 25.4 | 26.9 | 32.1 |
+| onnx-int8 | timeout | timeout | timeout |
 
-| Baseline | How to produce it | Isolates |
-| --- | --- | --- |
-| **Pure model floor** | `naive_bench` (no server) | raw `model.encode` time, no serving stack |
-| **Serving overhead** | server, `MAX_BATCH_SIZE=1`, **concurrency 1** | cost of HTTP + FastAPI + batcher per request (vs the floor) |
-| **No-batching-under-load** | server, `MAX_BATCH_SIZE=1`, **concurrency 32** | what batching actually buys (vs `batch=32` at same concurrency) |
+1. **Throughput rises with batch size** once inputs are compute-bound (pytorch-cpu 39 → 59,
+   mps 40 → 68 from bs128 → bs512). This is the opposite end of the curve from the latency workload.
+2. **MPS finally wins - but only here.** On long docs at bs512 the Apple GPU leads CPU by ~16%
+   (68 vs 59 seq/s). In the overhead-bound synthetic study (below) MPS never beat CPU. Same hardware,
+   opposite conclusion depending on the input distribution - exactly the reason to test real data.
+3. **ONNX-fp32 trails PyTorch on long docs** (32 vs 59–68 seq/s at bs512) in this single-session,
+   single-thread serving setup.
 
-So: yes — we want a "naive on the server" run. Concretely it's **`MAX_BATCH_SIZE=1`**.
-- `batch=1, c=1` vs the pure floor → tells you the per-request serving overhead.
-- `batch=1, c=32` vs `batch=32, c=32` → tells you the true batching win (same stack, same
-  concurrency, same device — only the batcher changes).
+### The INT8 finding (hypothesis falsified)
+
+`ANALYSIS.md` previously hypothesized that ONNX would win once quantized to INT8. **Measured, it does
+the opposite.** Dynamic-INT8 (`scripts/quantize_onnx.py`, 4× smaller on disk) is:
+
+- **Slightly slower on short inputs** (latency table: 22.7 vs 12.4 ms at tpr=1) - quantize/dequantize
+  overhead with no compute to amortize.
+- **Catastrophically slower on the large-batch long-doc workload** - every request exceeded the 30 s
+  client timeout (0 successful at bs128/256/512). Offline, a single 128-doc batch takes **39.4 s vs
+  2.55 s for fp32 - 15.4× slower** (3.2 vs 50 docs/s).
+
+This is a known ONNX Runtime dynamic-quantization failure mode: activations are quantized per
+inference, and the INT8 MatMul kernels are not optimized for these batch×sequence shapes on Apple
+ARM (no AVX-512 VNNI). **Takeaway:** dynamic INT8 is the wrong tool for MiniLM on this hardware;
+weight size shrinks 4× but latency and throughput both regress. Static/calibrated quantization, or a
+target with VNNI, would be the next experiment - not dynamic quant.
 
 ---
 
-## Runs to do (matrix)
+## Earlier study - synthetic-input batching sweep (kept for comparison)
 
-### Fair-comparison rules
-- **Backend comparison must hold device fixed.** Compare PyTorch-CPU vs ONNX-CPU (ONNX
-  has no GPU provider configured today). Comparing PyTorch-MPS vs ONNX-CPU is invalid.
-- **Concurrency ≥ max batch size**, or batches can never fill. The batch sweep below uses
-  `concurrency=32`, so it's valid for batch sizes up to 32. For batch 64, raise concurrency.
-- Keep everything else constant across runs: `--requests 500 --warmup 50
-  --texts-per-request 1`, same machine, server on port 8001.
+The original 16-run matrix used identical 3-word synthetic inputs (1 text/request), sweeping
+`MAX_BATCH_SIZE` at concurrency 32. It established the core batching result and is retained as a
+baseline (`benchmarks/{naive,pytorch,onnx}-*.json`, regenerate with `run_matrix.py --group legacy`).
 
-### How to set each knob
+![Dynamic batching sweep](batching-sweep.png)
+
+PyTorch / CPU, concurrency 32 (p50 ms / throughput):
+
+| Batch | p50 | Throughput |
+| ---: | ---: | ---: |
+| 1 | 199.5 ms | 159.6 req/s |
+| 8 | 117.6 ms | 177.1 req/s |
+| 16 | 109.2 ms | 215.5 req/s |
+| 32 | 103.7 ms | 231.1 req/s |
+
+- **Batching is the win:** batch 1 → 32 roughly halves p50 and lifts throughput ~45% - same
+  concurrency, same device, only the batcher changes.
+- **Serving overhead ≈ 1.4 ms/request** over the raw `model.encode` floor (naive baseline ~5.5 ms).
+- **MPS and ONNX-fp32 tie PyTorch-CPU here** because the workload is overhead-bound - the contrast
+  with the real-data throughput workload above is the whole point.
+
+---
+
+## Methodology & fair-comparison
+
+- **Backend comparison holds device fixed.** PyTorch-CPU vs ONNX-CPU is fair; PyTorch-MPS vs ONNX-CPU
+  is not (ONNX has no GPU provider configured). MPS rows are labelled separately.
+- **Encode batch = `MAX_BATCH_SIZE`.** The worker flattens the aggregated batch and calls
+  `model.encode(..., batch_size=max_batch_size)` (`app/batching.py` → `app/model.py:predict`),
+  replacing `model.encode`'s hidden default of 32. This is what lets the throughput workload form real
+  128/256/512 batches through the API rather than being silently chunked into 32s.
+- **Concurrency ≥ batch size**, or batches can never fill. Throughput runs use `concurrency = batch`.
+- **Per-run knobs are server env vars** (`MAX_BATCH_SIZE`, `MAX_WAIT_MS`, `DEVICE`, `BACKEND`,
+  `ONNX_FILE_NAME`) read once at startup; `scripts/run_matrix.py` restarts a server per config.
+- **Caveats:** single run per config; warmup excluded; localhost only (no real network); occasional
+  client `ReadError` (≤1 / 1024) under 256–512 concurrent sockets is connection noise, not a server
+  error; the INT8 throughput rows are all-timeout by the 30 s client deadline.
+
+---
+
+## Reproduce
+
 ```bash
-# Server (restart per config). Examples:
-DEVICE=cpu  MAX_BATCH_SIZE=32 uv run uvicorn app.main:app --port 8001   # PyTorch on CPU
-DEVICE=mps  MAX_BATCH_SIZE=32 uv run uvicorn app.main:app --port 8001   # PyTorch on MPS
-BACKEND=onnx MAX_BATCH_SIZE=32 uv run uvicorn app.main:app --port 8001  # ONNX (CPU, ignores DEVICE)
+uv sync --extra bench
 
-# Client (one per run; --backend/--server-batch-size are labels for the output file):
-uv run python scripts/bench.py --backend pytorch --server-batch-size 32 \
-  --concurrency 32 --requests 500 --warmup 50 --texts-per-request 1 \
-  --url http://localhost:8001/embed --output benchmarks/pytorch-cpu-batch32-c32.json
+# one-time: export the ONNX model + INT8 variant, and sample the dataset
+uv run python scripts/export_onnx.py
+uv run python scripts/quantize_onnx.py
+uv run python scripts/prepare_dataset.py        # writes benchmarks/data/*.jsonl (gitignored)
+
+# run the workloads (starts/stops a server per config)
+uv run python scripts/run_matrix.py                       # latency + throughput (24 runs)
+uv run python scripts/run_matrix.py --group latency       # just one group
+uv run python scripts/run_matrix.py --group throughput --filter onnx-int8
+uv run python scripts/run_matrix.py --group legacy        # the original synthetic matrix
+uv run python scripts/run_matrix.py --dry-run             # print the plan, run nothing
 ```
 
-### Naming convention
-`{backend}-{device}-batch{N}-c{C}.json` — e.g. `pytorch-cpu-batch16-c32.json`.
-(The current `pytorch-batch32-c32.json` was actually MPS, and `onnx-batch32-c32.json`
-was CPU; regenerate/rename them under this convention. `naive-direct.json` was MPS.)
-
-### Core matrix (16 runs)
-
-| # | Group | Backend | Device | Batch | Concurrency | Output file | Isolates |
-| --- | --- | --- | --- | ---: | ---: | --- | --- |
-| 1 | Floor | — (naive) | CPU | n/a | 1 | `naive-cpu.json` | raw model time, CPU |
-| 2 | Floor | — (naive) | MPS | n/a | 1 | `naive-mps.json` | raw model time, GPU |
-| 3 | Overhead | pytorch | CPU | 1 | 1 | `pytorch-cpu-batch1-c1.json` | serving overhead vs floor (CPU) |
-| 4 | Overhead | pytorch | MPS | 1 | 1 | `pytorch-mps-batch1-c1.json` | serving overhead vs floor (GPU) |
-| 5 | Batch sweep | pytorch | CPU | 1 | 32 | `pytorch-cpu-batch1-c32.json` | no-batching-under-load (CPU) |
-| 6 | Batch sweep | pytorch | CPU | 8 | 32 | `pytorch-cpu-batch8-c32.json` | batching curve (CPU) |
-| 7 | Batch sweep | pytorch | CPU | 16 | 32 | `pytorch-cpu-batch16-c32.json` | batching curve (CPU) |
-| 8 | Batch sweep | pytorch | CPU | 32 | 32 | `pytorch-cpu-batch32-c32.json` | batching curve (CPU) |
-| 9 | Batch sweep | pytorch | MPS | 1 | 32 | `pytorch-mps-batch1-c32.json` | no-batching-under-load (GPU) |
-| 10 | Batch sweep | pytorch | MPS | 8 | 32 | `pytorch-mps-batch8-c32.json` | batching curve (GPU) |
-| 11 | Batch sweep | pytorch | MPS | 16 | 32 | `pytorch-mps-batch16-c32.json` | batching curve (GPU) |
-| 12 | Batch sweep | pytorch | MPS | 32 | 32 | `pytorch-mps-batch32-c32.json` | batching curve (GPU) |
-| 13 | Backend | onnx | CPU | 1 | 32 | `onnx-cpu-batch1-c32.json` | ONNX vs PyTorch, no batching (CPU) |
-| 14 | Backend | onnx | CPU | 8 | 32 | `onnx-cpu-batch8-c32.json` | ONNX vs PyTorch (CPU) |
-| 15 | Backend | onnx | CPU | 16 | 32 | `onnx-cpu-batch16-c32.json` | ONNX vs PyTorch (CPU) |
-| 16 | Backend | onnx | CPU | 32 | 32 | `onnx-cpu-batch32-c32.json` | ONNX vs PyTorch (CPU) |
-
-### What each group answers
-- **Floor (1–2):** raw model speed and the model-only CPU-vs-GPU gap, no serving stack.
-- **Overhead (3–4):** subtract the floor to get the per-request cost of HTTP + FastAPI +
-  the batcher at a single request.
-- **Batch sweep (5–12):** the headline **latency vs throughput** curve. Compare `batch=1`
-  to `batch=8/16/32` at fixed concurrency to show what batching buys, separately for CPU
-  and GPU.
-- **Backend (13–16 vs 5–8):** ONNX vs PyTorch **on the same device (CPU)** — the only fair
-  way to judge the backend.
-
-### Optional / extended runs
-- **Concurrency saturation:** fix `pytorch-mps-batch32`, sweep `--concurrency 1, 8, 16,
-  32, 64, 128`. Shows where throughput plateaus and where p99 tail latency explodes.
-  (For c ≥ 64 you also see batches stay full — useful with batch 64.)
-- **Bigger batch:** `batch=64, c=64` (concurrency must rise to keep batches full).
-- **Realistic payloads:** longer and varied text lengths, and `--texts-per-request > 1`.
-  Larger inputs make compute a bigger share of total time — the regime where ONNX and
-  batching matter more. (`build_texts` in `scripts/utils.py` currently emits tiny
-  identical sentences.)
-- **Quantized ONNX:** export an INT8 model and rerun group 13–16; this is where ONNX-CPU
-  typically pulls ahead of PyTorch-CPU.
-- **ONNX on GPU:** would require configuring an ORT GPU/CoreML provider in
-  `app/model.py` (code change); only then is a PyTorch-MPS vs ONNX-GPU comparison valid.
-
----
-
-## Caveats to keep in mind when reporting
-- Warmup matters: first calls include lazy init / graph compile. Keep `--warmup 50`.
-- MPS has kernel-launch overhead; for tiny inputs CPU can be surprisingly competitive.
-- `run_in_executor(None, ...)` uses a thread pool; the GIL serializes Python-side work,
-  though torch/ORT release it during native compute — another reason results are
-  overhead-sensitive.
-- All single-machine, localhost runs: no real network latency is included.
+Each run writes `benchmarks/<name>.json` with full metadata (backend, device, batch, concurrency,
+texts/request, input length stats) and the p50/p95/p99 + throughput summary.

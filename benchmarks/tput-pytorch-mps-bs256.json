@@ -1,0 +1,46 @@
+{
+  "metadata": {
+    "timestamp_utc": "2026-06-12T06:21:43.549461+00:00",
+    "python_version": "3.12.11",
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "label": "tput-pytorch-mps-bs256",
+    "backend": "pytorch",
+    "device": "mps",
+    "server_batch_size": 256,
+    "url": "http://127.0.0.1:8000/embed",
+    "requests": 1024,
+    "concurrency": 256,
+    "texts_per_request": 1,
+    "text_source": "file",
+    "text_file": "nfcorpus-corpus.jsonl",
+    "length_stats": {
+      "count": 1024,
+      "min_chars": 158,
+      "median_chars": 1616,
+      "max_chars": 8192,
+      "mean_chars": 1585.0
+    },
+    "warmup": 256,
+    "timeout_seconds": 30.0
+  },
+  "summary": {
+    "total_requests": 1024,
+    "successful_requests": 1023,
+    "failed_requests": 1,
+    "successful_sequences": 1023,
+    "wall_time_seconds": 21.31690020801034,
+    "throughput_rps": 47.990091899739866,
+    "throughput_sequences_per_sec": 47.990091899739866,
+    "avg_latency_ms": 4348.1076675032655,
+    "p50_latency_ms": 4829.54899998731,
+    "p95_latency_ms": 6108.404415979749,
+    "p99_latency_ms": 6203.092125011608
+  },
+  "failures": [
+    {
+      "status_code": null,
+      "error": "ReadError: ",
+      "latency_ms": 2171.4822500071023
+    }
+  ]
+}

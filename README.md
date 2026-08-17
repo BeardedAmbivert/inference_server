@@ -14,9 +14,9 @@ short_description: embedding inference server with dynamic batching
 
 [![CI](https://github.com/BeardedAmbivert/inference_server/actions/workflows/ci.yml/badge.svg)](https://github.com/BeardedAmbivert/inference_server/actions/workflows/ci.yml) ![Python](https://img.shields.io/badge/python-3.12-blue) ![License](https://img.shields.io/badge/license-MIT-green) [![Live on HF Spaces](https://img.shields.io/badge/demo-Hugging%20Face%20Spaces-yellow)](https://beardedambivert-inference-server.hf.space)
 
-Embedding inference server with FastAPI, ONNX Runtime support, and dynamic batching for latency-throughput tradeoff experiments.
+Embedding inference server with FastAPI, optional ONNX Runtime (fp32 and dynamic INT8), and dynamic batching for latency-throughput tradeoff experiments.
 
-**Live demo** — the server runs on Hugging Face Spaces:
+**Live demo** - CPU Docker image on Hugging Face Spaces (may lag `main`):
 
 ```bash
 curl -X POST https://beardedambivert-inference-server.hf.space/embed \
@@ -28,9 +28,10 @@ Highlights:
 
 - Dynamic batching with size and time based flush conditions.
 - Async request handling with per-request futures mapped back after batched inference.
-- Optional ONNX backend support through SentenceTransformers and ONNX Runtime.
+- Optional ONNX backend: O3-optimized fp32 by default, or dynamic INT8 via `ONNX_FILE_NAME`.
+- Encode batch equals `MAX_BATCH_SIZE` (not SentenceTransformers' hidden default of 32).
 - Docker configuration for CPU deployment and Hugging Face Spaces.
-- Benchmark tooling for comparing sequential and concurrent request patterns.
+- Benchmark tooling for synthetic and BeIR/nfcorpus workloads (short queries vs long docs).
 
 ## Why This Exists
 
@@ -56,7 +57,7 @@ Request lifecycle:
 2. The FastAPI endpoint submits the request texts to `DynamicBatcher`.
 3. `DynamicBatcher` stores the request with an `asyncio.Future` in an in-memory queue.
 4. A background worker collects queued requests until the batch reaches the configured size limit or the wait window expires.
-5. The worker flattens all request texts, runs one model inference call, splits embeddings back by request, and resolves each request future.
+5. The worker flattens all request texts, runs one `model.encode(..., batch_size=max_batch_size)` call, splits embeddings back by request, and resolves each request future.
 6. The endpoint returns the embeddings, embedding dimension, and number of input texts.
 
 ## Batching Strategy
@@ -81,13 +82,39 @@ Tradeoff:
 
 ## Benchmarks
 
-Measured on Apple Silicon (macOS, arm64) with `all-MiniLM-L6-v2`, 500 requests at concurrency 32, one short sentence per request.
+Two studies, same machine (Apple Silicon, macOS arm64) and `all-MiniLM-L6-v2`. Full tables and JSON: [`benchmarks/README.md`](benchmarks/README.md). Methodology: [`benchmarks/ANALYSIS.md`](benchmarks/ANALYSIS.md).
+
+### Real data (BeIR/nfcorpus)
+
+Short medical queries (median 17 chars) vs long corpus docs (median ~1.6k chars). Four backends: PyTorch CPU/MPS, ONNX fp32 (O3), ONNX dynamic INT8.
+
+**Latency** - short queries, concurrency 1, p50 ms (seq/s):
+
+| Backend | 1 text/req | 8 | 32 |
+| --- | ---: | ---: | ---: |
+| pytorch-cpu | 14.4 (69) | 19.1 (426) | 28.5 (1111) |
+| pytorch-mps | 17.5 (40) | 20.1 (377) | 25.4 (1201) |
+| onnx-fp32 | **12.4 (80)** | 19.0 (415) | 45.2 (690) |
+| onnx-int8 | 22.7 (44) | 34.7 (227) | 83.7 (364) |
+
+**Throughput** - long docs, concurrency = batch, seq/s:
+
+| Backend | bs 128 | bs 256 | bs 512 |
+| --- | ---: | ---: | ---: |
+| pytorch-cpu | 39.4 | 44.0 | 58.6 |
+| pytorch-mps | 40.2 | 48.0 | **68.0** |
+| onnx-fp32 | 25.4 | 26.9 | 32.1 |
+| onnx-int8 | timeout | timeout | timeout |
+
+- Short inputs are **overhead-bound**. Packing 1→32 texts/request is the lever (~16× seq/s); the compute backend barely matters.
+- Long docs + large batches are **compute-bound**. Throughput rises with batch size, and MPS finally wins (+16% at bs 512).
+- Dynamic INT8 is **slower**, not faster: 4× smaller on disk, slower on short queries, and every large-batch long-doc run timed out (a 128-doc batch was 15.4× slower than fp32). The "INT8 will make ONNX win" hypothesis is falsified for dynamic quant on this hardware.
+
+### Synthetic batching sweep
+
+Identical 3-word inputs, concurrency 32. Isolates the batcher from the compute backend.
 
 ![Dynamic batching sweep](benchmarks/batching-sweep.png)
-
-- **Batching is the win:** at a fixed concurrency of 32, raising the batch size from 1 to 32 roughly **halves p50 latency** and lifts throughput **~45–55%**.
-- **Serving overhead is ~1.4 ms/request** over the raw `model.encode` floor.
-- **MPS and ONNX are not faster here** — for this tiny model and tiny inputs the workload is overhead-bound, so the Apple GPU matches CPU and ONNX-CPU ties PyTorch-CPU. (Wins would need INT8 quantization and/or larger inputs.)
 
 PyTorch on CPU, concurrency 32:
 
@@ -96,12 +123,13 @@ PyTorch on CPU, concurrency 32:
 | 1 (no batching) | 199.5 ms | 159.6 req/s |
 | 32 | 103.7 ms | 231.1 req/s |
 
-Full 16-run matrix and per-config numbers: [`benchmarks/README.md`](benchmarks/README.md). Why the numbers look this way, plus the fair-comparison methodology: [`benchmarks/ANALYSIS.md`](benchmarks/ANALYSIS.md).
-
-Regenerate everything with one command (starts/stops a server per config):
+Regenerate (starts/stops a server per config):
 
 ```bash
-uv run python scripts/run_matrix.py
+uv sync --extra bench
+uv run python scripts/prepare_dataset.py          # nfcorpus pools (gitignored)
+uv run python scripts/run_matrix.py               # latency + throughput (24 runs)
+uv run python scripts/run_matrix.py --group legacy
 ```
 
 ## Design Decisions
@@ -110,8 +138,9 @@ uv run python scripts/run_matrix.py
 - `DynamicBatcher` separates request collection from endpoint handling, which makes the queueing and response-mapping behavior easier to reason about.
 - Blocking model inference runs through `run_in_executor` so the event loop can continue accepting requests while inference is executing.
 - PyTorch/SentenceTransformers remains the default backend so the server can start from a fresh clone without exported model artifacts.
-- ONNX Runtime support is included as an opt-in backend, but performance claims should be based on measured benchmarks for the target hardware and configuration.
-- The API returns the embedding dimension from the loaded model instead of hardcoding a model-specific value.
+- ONNX Runtime is opt-in (`BACKEND=onnx`). The graph is selected with `ONNX_FILE_NAME` (default `onnx/model_O3.onnx`; set `onnx/model_int8.onnx` after `scripts/quantize_onnx.py`).
+- The worker passes `batch_size=max_batch_size` into `model.encode` so large batches are not silently chunked at 32.
+- Performance claims are from measured benches on this hardware, including the INT8-negative result.
 
 ## Failure Handling & Limitations
 
@@ -123,15 +152,16 @@ Current behavior:
 - Model inference errors are propagated to every request future in the failed batch and returned to the client as a sanitized `500` (no stack trace leak).
 - Shutdown cancels the worker task and marks queued requests with cancellation errors.
 - `/health` is a readiness probe (`200`/`503`) that also reports live queue depth and in-flight counts.
-- Every request gets a correlation ID — taken from an inbound `X-Request-ID` header or generated, echoed back on the response — and is logged as structured JSON (method, path, status, `duration_ms`).
+- Every request gets a correlation ID - taken from an inbound `X-Request-ID` header or generated, echoed back on the response - and is logged as structured JSON (method, path, status, `duration_ms`).
 
-The limits and log level are configurable via environment variables (see `app/config.py`): `MAX_TEXTS_PER_REQUEST`, `MAX_CHARS_PER_TEXT`, `MAX_QUEUE_SIZE`, `REQUEST_TIMEOUT_S`, `LOG_LEVEL`.
+The limits and log level are configurable via environment variables (see `app/config.py`): `MAX_TEXTS_PER_REQUEST`, `MAX_CHARS_PER_TEXT`, `MAX_QUEUE_SIZE`, `REQUEST_TIMEOUT_S`, `LOG_LEVEL`, `BACKEND`, `ONNX_FILE_NAME`.
 
 Current limitations:
 
 - The worker model is single-process and single-batcher.
 - Persistent metrics are not exposed yet.
-- ONNX mode requires an exported ONNX model directory under `models/minilm-onnx`.
+- ONNX mode requires an exported directory under `models/minilm-onnx`. Dynamic INT8 is implemented and measured; it is not faster on this hardware.
+- nfcorpus pools under `benchmarks/data/` are gitignored; regenerate with `scripts/prepare_dataset.py`.
 
 ## Future Improvements
 
@@ -153,11 +183,18 @@ Start the server:
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Export the ONNX model and run with the ONNX backend:
+Export the ONNX model and run with the ONNX backend (O3 fp32 by default):
 
 ```bash
 uv run python scripts/export_onnx.py
 BACKEND=onnx uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Serve the dynamic-INT8 graph (quantizes the base `onnx/model.onnx` export, not the O3 graph):
+
+```bash
+uv run python scripts/quantize_onnx.py
+ONNX_FILE_NAME=onnx/model_int8.onnx BACKEND=onnx uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Check health:
@@ -245,7 +282,7 @@ Error responses:
 
 | Status | When |
 | --- | --- |
-| `422` | Invalid input — empty `texts`, more than `MAX_TEXTS_PER_REQUEST` texts, an empty text, or a text over `MAX_CHARS_PER_TEXT`. |
-| `503` | Server overloaded — the request queue is at capacity (`MAX_QUEUE_SIZE`). |
+| `422` | Invalid input - empty `texts`, more than `MAX_TEXTS_PER_REQUEST` texts, an empty text, or a text over `MAX_CHARS_PER_TEXT`. |
+| `503` | Server overloaded - the request queue is at capacity (`MAX_QUEUE_SIZE`). |
 | `504` | Inference did not complete within `REQUEST_TIMEOUT_S`. |
 | `500` | Unexpected inference error (details are not leaked to the client). |

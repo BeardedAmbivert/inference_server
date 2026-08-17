@@ -1,0 +1,40 @@
+{
+  "metadata": {
+    "timestamp_utc": "2026-06-12T06:25:18.111677+00:00",
+    "python_version": "3.12.11",
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "label": "tput-onnx-fp32-bs512",
+    "backend": "onnx",
+    "device": "cpu",
+    "server_batch_size": 512,
+    "url": "http://127.0.0.1:8000/embed",
+    "requests": 2048,
+    "concurrency": 512,
+    "texts_per_request": 1,
+    "text_source": "file",
+    "text_file": "nfcorpus-corpus.jsonl",
+    "length_stats": {
+      "count": 2048,
+      "min_chars": 158,
+      "median_chars": 1593,
+      "max_chars": 8192,
+      "mean_chars": 1566.4
+    },
+    "warmup": 512,
+    "timeout_seconds": 30.0
+  },
+  "summary": {
+    "total_requests": 2048,
+    "successful_requests": 2048,
+    "failed_requests": 0,
+    "successful_sequences": 2048,
+    "wall_time_seconds": 63.781274000008125,
+    "throughput_rps": 32.10973804003569,
+    "throughput_sequences_per_sec": 32.10973804003569,
+    "avg_latency_ms": 13923.346310032983,
+    "p50_latency_ms": 13141.240832977928,
+    "p95_latency_ms": 18550.792333000572,
+    "p99_latency_ms": 19280.981417017756
+  },
+  "failures": []
+}

@@ -1,5 +1,6 @@
 # Python-generated files
 __pycache__/
+.pytest_cache/
 *.py[oc]
 build/
 dist/
@@ -11,6 +12,9 @@ wheels/
 
 # Model exports
 models/
+
+# Benchmark datasets (downloaded/sampled via scripts/prepare_dataset.py)
+benchmarks/data/
 
 # AI agent files
 .claude

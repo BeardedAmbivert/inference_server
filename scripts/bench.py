@@ -11,7 +11,17 @@ from typing import Any
 
 import httpx
 
-from utils import base_metadata, build_texts, format_ms, percentile, seconds_to_ms, write_json
+from utils import (
+    base_metadata,
+    build_texts,
+    format_ms,
+    length_stats,
+    load_text_pool,
+    percentile,
+    sample_texts,
+    seconds_to_ms,
+    write_json,
+)
 
 
 DEFAULT_URL = "http://localhost:8000/embed"
@@ -34,8 +44,20 @@ class RequestResult:
         return self.error is None and self.status_code is not None and 200 <= self.status_code < 300
 
 
-def build_payload(texts_per_request: int) -> dict[str, list[str]]:
-    return {"texts": build_texts(texts_per_request)}
+def build_payloads(
+    count: int,
+    texts_per_request: int,
+    text_source: str,
+    text_file: Path | None,
+    seed: int,
+) -> list[dict[str, list[str]]]:
+    """Pre-build one payload per request. Synthetic payloads are identical; file-sourced
+    payloads draw fresh texts per request (index-seeded RNG) so the run is varied yet reproducible."""
+    if text_source == "synthetic":
+        texts = build_texts(texts_per_request)
+        return [{"texts": texts} for _ in range(count)]
+    pool = load_text_pool(text_file)
+    return [{"texts": sample_texts(pool, texts_per_request, seed + i)} for i in range(count)]
 
 
 async def send_one(
@@ -63,12 +85,10 @@ async def send_one(
 
 async def run_requests(
     url: str,
-    total_requests: int,
+    payloads: list[dict[str, list[str]]],
     concurrency: int,
-    texts_per_request: int,
     timeout_seconds: float,
 ) -> tuple[list[RequestResult], float]:
-    payload = build_payload(texts_per_request)
     timeout = httpx.Timeout(timeout_seconds)
     limits = httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)
     semaphore = asyncio.Semaphore(concurrency)
@@ -76,11 +96,11 @@ async def run_requests(
     async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
         start = time.perf_counter()
 
-        async def bounded_send() -> RequestResult:
+        async def bounded_send(payload: dict[str, list[str]]) -> RequestResult:
             async with semaphore:
                 return await send_one(client, url, payload)
 
-        results = await asyncio.gather(*(bounded_send() for _ in range(total_requests)))
+        results = await asyncio.gather(*(bounded_send(payload) for payload in payloads))
         wall_time = time.perf_counter() - start
 
     return list(results), wall_time
@@ -165,6 +185,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--requests", type=int, default=DEFAULT_REQUESTS, help="Total measured requests.")
     parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY, help="Concurrent in-flight requests.")
     parser.add_argument("--texts-per-request", type=int, default=DEFAULT_TEXTS_PER_REQUEST, help="Texts in each /embed request.")
+    parser.add_argument("--text-source", choices=("synthetic", "file"), default="synthetic", help="Where request texts come from. Default: synthetic.")
+    parser.add_argument("--text-file", type=Path, help="JSONL text pool (one {\"text\": ...} per line); used when --text-source=file.")
+    parser.add_argument("--seed", type=int, default=0, help="Base seed for per-request text sampling.")
     parser.add_argument("--warmup", type=int, default=DEFAULT_WARMUP, help="Warmup requests excluded from results.")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS, help="Per-request timeout in seconds.")
     parser.add_argument("--output", type=Path, help="Optional JSON output path.")
@@ -184,27 +207,28 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--timeout must be > 0")
     if args.server_batch_size is not None and args.server_batch_size < 1:
         raise SystemExit("--server-batch-size must be >= 1")
+    if args.text_source == "file" and args.text_file is None:
+        raise SystemExit("--text-file is required when --text-source=file")
+    if args.text_file is not None and not args.text_file.exists():
+        raise SystemExit(f"--text-file not found: {args.text_file}")
 
 
 async def main() -> None:
     args = parse_args()
     validate_args(args)
 
+    measured_payloads = build_payloads(
+        args.requests, args.texts_per_request, args.text_source, args.text_file, args.seed
+    )
+
     if args.warmup:
-        await run_requests(
-            url=args.url,
-            total_requests=args.warmup,
-            concurrency=args.concurrency,
-            texts_per_request=args.texts_per_request,
-            timeout_seconds=args.timeout,
+        warmup_payloads = build_payloads(
+            args.warmup, args.texts_per_request, args.text_source, args.text_file, args.seed + 10_000
         )
+        await run_requests(args.url, warmup_payloads, args.concurrency, args.timeout)
 
     results, wall_time = await run_requests(
-        url=args.url,
-        total_requests=args.requests,
-        concurrency=args.concurrency,
-        texts_per_request=args.texts_per_request,
-        timeout_seconds=args.timeout,
+        args.url, measured_payloads, args.concurrency, args.timeout
     )
 
     metadata = {
@@ -217,6 +241,9 @@ async def main() -> None:
         "requests": args.requests,
         "concurrency": args.concurrency,
         "texts_per_request": args.texts_per_request,
+        "text_source": args.text_source,
+        "text_file": args.text_file.name if args.text_file else None,
+        "length_stats": length_stats([t for p in measured_payloads for t in p["texts"]]),
         "warmup": args.warmup,
         "timeout_seconds": args.timeout,
     }

@@ -54,6 +54,20 @@ async def test_request_response_mapping(make_model):
         assert res == model.encode(req).tolist()
 
 
+async def test_encode_uses_max_batch_size(make_model):
+    """The worker encodes the aggregated batch in one pass sized by max_batch_size,
+    not model.encode's hidden default of 32."""
+    model = make_model()
+    batcher = DynamicBatcher(model, max_batch_size=7, max_wait_ms=50)
+    batcher.start()
+    try:
+        await asyncio.wait_for(batcher.submit(["a"]), timeout=5)
+    finally:
+        await batcher.stop()
+
+    assert model.last_batch_size == 7
+
+
 async def test_exception_propagation(make_model):
     """An inference error surfaces to the awaiting submit()."""
     batcher = DynamicBatcher(

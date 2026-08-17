@@ -16,8 +16,10 @@ class FakeModel:
         self._dim = dim
         self._error = error  # if set, encode() raises it
         self._gate = gate     # if set, encode() blocks until the event is set
+        self.last_batch_size = None  # records the batch_size passed to the last encode()
 
-    def encode(self, texts: list[str]) -> np.ndarray:
+    def encode(self, texts: list[str], batch_size: int | None = None) -> np.ndarray:
+        self.last_batch_size = batch_size
         if self._gate is not None:
             self._gate.wait()
         if self._error is not None:

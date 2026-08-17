@@ -1,0 +1,91 @@
+{
+  "metadata": {
+    "timestamp_utc": "2026-06-12T06:29:17.655743+00:00",
+    "python_version": "3.12.11",
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "label": "tput-onnx-int8-bs256",
+    "backend": "onnx",
+    "device": "cpu",
+    "server_batch_size": 256,
+    "url": "http://127.0.0.1:8000/embed",
+    "requests": 1024,
+    "concurrency": 256,
+    "texts_per_request": 1,
+    "text_source": "file",
+    "text_file": "nfcorpus-corpus.jsonl",
+    "length_stats": {
+      "count": 1024,
+      "min_chars": 158,
+      "median_chars": 1616,
+      "max_chars": 8192,
+      "mean_chars": 1585.0
+    },
+    "warmup": 256,
+    "timeout_seconds": 30.0
+  },
+  "summary": {
+    "total_requests": 1024,
+    "successful_requests": 0,
+    "failed_requests": 1024,
+    "successful_sequences": 0,
+    "wall_time_seconds": 42.28003991697915,
+    "throughput_rps": 0.0,
+    "throughput_sequences_per_sec": 0.0,
+    "avg_latency_ms": null,
+    "p50_latency_ms": null,
+    "p95_latency_ms": null,
+    "p99_latency_ms": null
+  },
+  "failures": [
+    {
+      "status_code": null,
+      "error": "ReadTimeout: ",
+      "latency_ms": 30381.828124984168
+    },
+    {
+      "status_code": null,
+      "error": "ReadTimeout: ",
+      "latency_ms": 30379.885791015113
+    },
+    {
+      "status_code": null,
+      "error": "ReadTimeout: ",
+      "latency_ms": 30379.664832988055
+    },
+    {
+      "status_code": null,
+      "error": "ReadTimeout: ",
+      "latency_ms": 30377.69200000912
+    },
+    {
+      "status_code": null,
+      "error": "ReadTimeout: ",
+      "latency_ms": 30376.267334009754
+    },
+    {
+      "status_code": null,
+      "error": "ReadTimeout: ",
+      "latency_ms": 30376.14054098958
+    },
+    {
+      "status_code": null,
+      "error": "ReadTimeout: ",
+      "latency_ms": 30376.058790978277
+    },
+    {
+      "status_code": null,
+      "error": "ReadTimeout: ",
+      "latency_ms": 30373.65808399045
+    },
+    {
+      "status_code": null,
+      "error": "ReadTimeout: ",
+      "latency_ms": 30373.509333003312
+    },
+    {
+      "status_code": null,
+      "error": "ReadTimeout: ",
+      "latency_ms": 30372.05929099582
+    }
+  ]
+}
