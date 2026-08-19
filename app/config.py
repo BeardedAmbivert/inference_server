@@ -2,18 +2,13 @@ from pydantic_settings import BaseSettings
 import torch
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables.
-
-    Hint: pydantic-settings reads from env vars automatically.
-    Prefix with model_config = SettingsConfigDict(env_prefix="INFERENCE_") if you want
-    namespaced env vars like INFERENCE_MODEL_NAME.
-    """
+    """Server settings. Each field is overridable by the matching env var (uppercase)."""
 
     onnx_model_path: str = "models/minilm-onnx"
     # ONNX backend file under onnx_model_path. Set ONNX_FILE_NAME=onnx/model_int8.onnx
     # to serve the INT8-quantized model (see scripts/quantize_onnx.py).
     onnx_file_name: str = "onnx/model_O3.onnx"
-    model_name: str | None = "sentence-transformers/all-MiniLM-L6-v2"
+    model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
     device: str = "mps" if torch.backends.mps.is_available() else "cpu"
     backend: str | None = None
     host: str = "0.0.0.0"

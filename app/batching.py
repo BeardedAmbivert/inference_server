@@ -23,7 +23,7 @@ class EmbedBatchResult:
 @dataclass
 class _Queued:
     texts: list[str]
-    future: asyncio.Future
+    future: asyncio.Future[EmbedBatchResult]
     enqueued_at: float
 
 
@@ -64,8 +64,8 @@ class DynamicBatcher:
         self._max_batch_size = max_batch_size
         self._max_wait_ms = max_wait_ms
         self._request_timeout_s = request_timeout_s
-        self._queue = asyncio.Queue(maxsize=max_queue_size)
-        self._worker_task = None
+        self._queue: asyncio.Queue[_Queued] = asyncio.Queue(maxsize=max_queue_size)
+        self._worker_task: asyncio.Task[None] | None = None
         self._inflight = 0
 
     def start(self) -> None:
@@ -74,7 +74,8 @@ class DynamicBatcher:
 
     async def stop(self) -> None:
         """Stop the background worker and drain remaining requests."""
-
+        if self._worker_task is None:
+            return
         try:
             self._worker_task.cancel()
             await self._worker_task
@@ -106,7 +107,7 @@ class DynamicBatcher:
         Rejects immediately with QueueFullError when the queue is at capacity (backpressure),
         and raises RequestTimeoutError if the result isn't ready within request_timeout_s.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         future = loop.create_future()
         try:
             self._queue.put_nowait(_Queued(texts, future, time.perf_counter()))
@@ -141,7 +142,7 @@ class DynamicBatcher:
 
             # run inference: encode the whole aggregated batch in one pass (batch_size =
             # max_batch_size), instead of model.encode's hidden default of 32.
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             encode_started = time.perf_counter()
             try:
                 all_embeddings = await loop.run_in_executor(

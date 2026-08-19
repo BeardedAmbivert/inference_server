@@ -102,8 +102,8 @@ async def test_shutdown_drains_queued_requests(make_model):
     # batch_size=1 so the worker takes request A and immediately enters encode(), which blocks.
     batcher = DynamicBatcher(make_model(gate=gate), max_batch_size=1, max_wait_ms=50)
     batcher.start()
+    a = asyncio.create_task(batcher.submit(["A"]))
     try:
-        a = asyncio.create_task(batcher.submit(["A"]))
         await asyncio.sleep(0.1)  # let the worker pull A and block inside the executor
         b = asyncio.create_task(batcher.submit(["B"]))
         await asyncio.sleep(0.05)  # B is now sitting in the queue
@@ -156,7 +156,7 @@ async def test_request_timeout(make_model):
         with pytest.raises(RequestTimeoutError):
             await batcher.submit(["slow"])
 
-        assert not batcher._worker_task.done()  # guard prevented a worker crash
+        assert batcher._worker_task is not None and not batcher._worker_task.done()
         gate.set()  # let the stuck inference finish; the worker skips the cancelled future
 
         result = await asyncio.wait_for(batcher.submit(["after"]), timeout=5)
