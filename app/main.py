@@ -3,8 +3,10 @@ import time
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from .schemas import EmbedRequest, EmbedResponse
 from .model import load_model
@@ -13,6 +15,7 @@ from .batching import DynamicBatcher, QueueFullError, RequestTimeoutError
 from .logging_config import configure_logging, request_id_var
 
 logger = logging.getLogger("inference_server")
+LANDING_PAGE = Path(__file__).parent / "static" / "index.html"
 
 
 @asynccontextmanager
@@ -79,6 +82,12 @@ async def request_context(request: Request, call_next):
         return response
     finally:
         request_id_var.reset(token)
+
+
+@app.get("/", include_in_schema=False)
+async def landing():
+    """Space / local landing page. API explorer is /docs."""
+    return FileResponse(LANDING_PAGE, media_type="text/html; charset=utf-8")
 
 
 def _runtime_status() -> tuple[bool, dict]:

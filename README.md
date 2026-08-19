@@ -12,11 +12,11 @@ short_description: embedding inference server with dynamic batching
 
 # inference_server
 
-[![CI](https://github.com/BeardedAmbivert/inference_server/actions/workflows/ci.yml/badge.svg)](https://github.com/BeardedAmbivert/inference_server/actions/workflows/ci.yml) ![Python](https://img.shields.io/badge/python-3.12-blue) ![License](https://img.shields.io/badge/license-MIT-green) [![HF Spaces](https://img.shields.io/badge/HF%20Spaces-CPU%20image%2C%20may%20be%20asleep-lightgrey)](https://beardedambivert-inference-server.hf.space)
+[![CI](https://github.com/BeardedAmbivert/inference_server/actions/workflows/ci.yml/badge.svg)](https://github.com/BeardedAmbivert/inference_server/actions/workflows/ci.yml) ![Python](https://img.shields.io/badge/python-3.12-blue) ![License](https://img.shields.io/badge/license-MIT-green) [![Live on HF Spaces](https://img.shields.io/badge/demo-Hugging%20Face%20Spaces-yellow)](https://beardedambivert-inference-server.hf.space)
 
 Embedding inference server with FastAPI, optional ONNX Runtime (fp32 and dynamic INT8), and dynamic batching for latency-throughput tradeoff experiments.
 
-**HF Spaces** (CPU image; may cold-start or stay asleep; currently lags `main`):
+**Live demo** on Hugging Face Spaces (CPU Docker image; first request after sleep may be slow). `/` is a landing page that lists the endpoints; Swagger is at `/docs`.
 
 ```bash
 curl -X POST https://beardedambivert-inference-server.hf.space/embed \
@@ -234,6 +234,12 @@ curl -X POST http://localhost:7860/embed \
 ```
 
 ## API
+
+### `GET /`
+
+HTML landing page used by the Hugging Face Spaces App tab. Lists `/health`, `/metrics`, `/embed`, `/docs`, `/redoc`, and `/openapi.json`. Not included in the OpenAPI schema.
+
+Interactive API explorer: [`/docs`](https://beardedambivert-inference-server.hf.space/docs) (Swagger) and [`/redoc`](https://beardedambivert-inference-server.hf.space/redoc).
 
 ### `GET /health`
 

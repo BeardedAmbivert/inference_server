@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Embedding Inference Server</title>
+  <style>
+    :root {
+      --bg: #f6f5f1;
+      --card: #ffffff;
+      --ink: #1c1917;
+      --muted: #57534e;
+      --line: #e7e5e4;
+      --accent: #c4a35a;
+      --get: #0f766e;
+      --post: #1d4ed8;
+      --ok: #15803d;
+      --bad: #b91c1c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 16px/1.5 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      margin: 0 0 8px;
+    }
+    .lede { color: var(--muted); margin: 0 0 20px; }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      background: var(--card);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.85rem;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #a8a29e;
+    }
+    .dot.ok { background: var(--ok); }
+    .dot.bad { background: var(--bad); }
+    a.btn {
+      color: var(--ink);
+      text-decoration: none;
+      border: 1px solid var(--ink);
+      background: var(--card);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 0.9rem;
+    }
+    a.btn.primary {
+      background: var(--ink);
+      color: var(--bg);
+      border-color: var(--ink);
+    }
+    h2 {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin: 0 0 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 28px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    tr:last-child th, tr:last-child td { border-bottom: 0; }
+    th { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
+    code, pre, .mono { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; }
+    .method {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #fff;
+    }
+    .method.get { background: var(--get); }
+    .method.post { background: var(--post); }
+    a { color: #1d4ed8; }
+    textarea, button {
+      font: inherit;
+    }
+    textarea {
+      width: 100%;
+      min-height: 88px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: var(--card);
+      resize: vertical;
+    }
+    button {
+      margin-top: 10px;
+      background: var(--ink);
+      color: var(--bg);
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: default; }
+    pre {
+      background: #1c1917;
+      color: #f5f5f4;
+      border-radius: 10px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      margin: 0 0 28px;
+    }
+    #embed-out {
+      margin-top: 12px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 0.82rem;
+      white-space: pre-wrap;
+      display: none;
+    }
+    #embed-out.show { display: block; }
+    .try { margin-bottom: 28px; }
+    footer { color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Embedding Inference Server</h1>
+    <p class="lede">
+      FastAPI MiniLM embeddings with async dynamic batching.
+      This page is the Space landing; the interactive API explorer is Swagger.
+    </p>
+    <div class="row">
+      <span class="pill"><span id="status-dot" class="dot"></span><span id="status-text">checking health</span></span>
+      <a class="btn primary" href="/docs">Open Swagger</a>
+      <a class="btn" href="/redoc">ReDoc</a>
+      <a class="btn" href="/health">/health</a>
+      <a class="btn" href="/metrics">/metrics</a>
+    </div>
+
+    <h2>Endpoints</h2>
+    <table>
+      <thead>
+        <tr><th>Method</th><th>Path</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td class="mono"><a href="/">/</a></td>
+          <td>This landing page</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td class="mono"><a href="/health">/health</a></td>
+          <td>Readiness probe. 200 when the model and batch worker are up, else 503.</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td class="mono"><a href="/metrics">/metrics</a></td>
+          <td>Same snapshot as /health, always 200.</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span></td>
+          <td class="mono">/embed</td>
+          <td>Embed a JSON list of texts. Returns 384-d vectors.</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td class="mono"><a href="/docs">/docs</a></td>
+          <td>Swagger UI generated from the FastAPI OpenAPI schema.</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td class="mono"><a href="/redoc">/redoc</a></td>
+          <td>ReDoc view of the same schema.</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span></td>
+          <td class="mono"><a href="/openapi.json">/openapi.json</a></td>
+          <td>Raw OpenAPI document.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Try POST /embed</h2>
+    <div class="try">
+      <textarea id="texts" spellcheck="false">hello world</textarea>
+      <button id="embed-btn" type="button">Embed</button>
+      <div id="embed-out" class="mono"></div>
+    </div>
+
+    <h2>curl</h2>
+    <pre>curl -X POST /embed \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["hello world"]}'</pre>
+
+    <footer>
+      Model: sentence-transformers/all-MiniLM-L6-v2.
+      Source:
+      <a href="https://github.com/BeardedAmbivert/inference_server">GitHub</a>.
+    </footer>
+  </main>
+  <script>
+    const statusDot = document.getElementById("status-dot");
+    const statusText = document.getElementById("status-text");
+    const out = document.getElementById("embed-out");
+    const btn = document.getElementById("embed-btn");
+
+    fetch("/health")
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        statusDot.className = "dot " + (ok ? "ok" : "bad");
+        const bits = [body.status || (ok ? "ready" : "not ready")];
+        if (body.device) bits.push(body.device);
+        if (body.model) bits.push(body.model.split("/").pop());
+        statusText.textContent = bits.join(" · ");
+      })
+      .catch(() => {
+        statusDot.className = "dot bad";
+        statusText.textContent = "health check failed";
+      });
+
+    btn.addEventListener("click", async () => {
+      const lines = document.getElementById("texts").value
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!lines.length) return;
+      btn.disabled = true;
+      out.className = "mono show";
+      out.textContent = "running…";
+      try {
+        const resp = await fetch("/embed", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ texts: lines }),
+        });
+        const body = await resp.json();
+        if (!resp.ok) {
+          out.textContent = JSON.stringify(body, null, 2);
+          return;
+        }
+        const preview = (body.embeddings || []).map((vec) => {
+          const head = vec.slice(0, 8).map((x) => Number(x).toFixed(4));
+          return "[" + head.join(", ") + ", …] (" + vec.length + "d)";
+        });
+        out.textContent =
+          "num_texts: " + body.num_texts + "\n" +
+          "dim: " + body.dim + "\n" +
+          preview.join("\n");
+      } catch (err) {
+        out.textContent = String(err);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

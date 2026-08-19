@@ -21,6 +21,17 @@ def client(monkeypatch, make_model):
         yield test_client
 
 
+def test_landing(client):
+    """GET / is an HTML landing that lists the public endpoints."""
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    body = resp.text
+    for path in ("/health", "/metrics", "/embed", "/docs", "/redoc", "/openapi.json"):
+        assert path in body
+
+
 def test_health(client):
     resp = client.get("/health")
 
