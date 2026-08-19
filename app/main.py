@@ -81,13 +81,8 @@ async def request_context(request: Request, call_next):
         request_id_var.reset(token)
 
 
-@app.get("/health")
-async def health():
-    """Readiness probe.
-
-    Returns 200 when the model is loaded and the batch worker is alive, otherwise 503,
-    plus live queue/in-flight numbers for quick operational visibility.
-    """
+def _runtime_status() -> tuple[bool, dict]:
+    """Snapshot used by /health (readiness) and /metrics (always 200)."""
     model_loaded = getattr(app.state, "model", None) is not None
     batcher = getattr(app.state, "batcher", None)
     worker_alive = batcher is not None and batcher.is_running()
@@ -96,13 +91,33 @@ async def health():
         "status": "ready" if ready else "not ready",
         "model": settings.model_name,
         "device": settings.device,
+        "backend": settings.backend,
         "model_loaded": model_loaded,
         "worker_alive": worker_alive,
         "queue_depth": batcher.queue_depth() if batcher is not None else None,
         "inflight": batcher.inflight() if batcher is not None else None,
         "max_queue_size": settings.max_queue_size,
+        "max_batch_size": settings.max_batch_size,
     }
+    return ready, body
+
+
+@app.get("/health")
+async def health():
+    """Readiness probe.
+
+    Returns 200 when the model is loaded and the batch worker is alive, otherwise 503,
+    plus live queue/in-flight numbers for quick operational visibility.
+    """
+    ready, body = _runtime_status()
     return JSONResponse(status_code=200 if ready else 503, content=body)
+
+
+@app.get("/metrics")
+async def metrics():
+    """Same snapshot as /health, always 200 so scrapes are not treated as probe failures."""
+    _, body = _runtime_status()
+    return JSONResponse(status_code=200, content=body)
 
 
 @app.post("/embed", response_model=EmbedResponse)

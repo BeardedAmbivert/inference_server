@@ -12,11 +12,11 @@ short_description: embedding inference server with dynamic batching
 
 # inference_server
 
-[![CI](https://github.com/BeardedAmbivert/inference_server/actions/workflows/ci.yml/badge.svg)](https://github.com/BeardedAmbivert/inference_server/actions/workflows/ci.yml) ![Python](https://img.shields.io/badge/python-3.12-blue) ![License](https://img.shields.io/badge/license-MIT-green) [![Live on HF Spaces](https://img.shields.io/badge/demo-Hugging%20Face%20Spaces-yellow)](https://beardedambivert-inference-server.hf.space)
+[![CI](https://github.com/BeardedAmbivert/inference_server/actions/workflows/ci.yml/badge.svg)](https://github.com/BeardedAmbivert/inference_server/actions/workflows/ci.yml) ![Python](https://img.shields.io/badge/python-3.12-blue) ![License](https://img.shields.io/badge/license-MIT-green) [![HF Spaces](https://img.shields.io/badge/HF%20Spaces-CPU%20image%2C%20may%20be%20asleep-lightgrey)](https://beardedambivert-inference-server.hf.space)
 
 Embedding inference server with FastAPI, optional ONNX Runtime (fp32 and dynamic INT8), and dynamic batching for latency-throughput tradeoff experiments.
 
-**Live demo** - CPU Docker image on Hugging Face Spaces (may lag `main`):
+**HF Spaces** (CPU image; may cold-start or stay asleep; currently lags `main`):
 
 ```bash
 curl -X POST https://beardedambivert-inference-server.hf.space/embed \
@@ -152,6 +152,7 @@ Current behavior:
 - Model inference errors are propagated to every request future in the failed batch and returned to the client as a sanitized `500` (no stack trace leak).
 - Shutdown cancels the worker task and marks queued requests with cancellation errors.
 - `/health` is a readiness probe (`200`/`503`) that also reports live queue depth and in-flight counts.
+- `/metrics` returns the same snapshot as `/health` and is always `200`.
 - Every request gets a correlation ID - taken from an inbound `X-Request-ID` header or generated, echoed back on the response - and is logged as structured JSON (method, path, status, `duration_ms`).
 
 The limits and log level are configurable via environment variables (see `app/config.py`): `MAX_TEXTS_PER_REQUEST`, `MAX_CHARS_PER_TEXT`, `MAX_QUEUE_SIZE`, `REQUEST_TIMEOUT_S`, `LOG_LEVEL`, `BACKEND`, `ONNX_FILE_NAME`.
@@ -159,13 +160,11 @@ The limits and log level are configurable via environment variables (see `app/co
 Current limitations:
 
 - The worker model is single-process and single-batcher.
-- Persistent metrics are not exposed yet.
 - ONNX mode requires an exported directory under `models/minilm-onnx`. Dynamic INT8 is implemented and measured; it is not faster on this hardware.
 - nfcorpus pools under `benchmarks/data/` are gitignored; regenerate with `scripts/prepare_dataset.py`.
 
 ## Future Improvements
 
-- Expose metrics for request rate, latency distribution, batch size distribution, and model errors.
 - Clarify multi-worker deployment behavior and scaling limits.
 - Add optional caching for repeated texts or use-case-specific workloads.
 
@@ -201,6 +200,7 @@ Check health:
 
 ```bash
 curl http://localhost:8000/health
+curl http://localhost:8000/metrics
 ```
 
 Generate embeddings:
@@ -246,15 +246,21 @@ Example response (`200`):
   "status": "ready",
   "model": "sentence-transformers/all-MiniLM-L6-v2",
   "device": "cpu",
+  "backend": null,
   "model_loaded": true,
   "worker_alive": true,
   "queue_depth": 0,
   "inflight": 0,
-  "max_queue_size": 1000
+  "max_queue_size": 1000,
+  "max_batch_size": 32
 }
 ```
 
 When the server is not ready the same shape is returned with `"status": "not ready"` and HTTP `503`.
+
+### `GET /metrics`
+
+Same JSON body as `/health`. Always returns `200`, including when the server is not ready, so a scrape is not treated as a failed readiness check.
 
 ### `POST /embed`
 

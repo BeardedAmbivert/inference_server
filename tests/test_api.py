@@ -31,8 +31,11 @@ def test_health(client):
     assert body["worker_alive"] is True
     assert body["queue_depth"] == 0
     assert body["inflight"] == 0
+    assert body["max_queue_size"] == settings.max_queue_size
+    assert body["max_batch_size"] == settings.max_batch_size
     assert "model" in body
     assert "device" in body
+    assert "backend" in body
 
 
 def test_health_not_ready_returns_503(client, monkeypatch):
@@ -41,6 +44,30 @@ def test_health_not_ready_returns_503(client, monkeypatch):
     resp = client.get("/health")
 
     assert resp.status_code == 503
+    assert resp.json()["status"] == "not ready"
+
+
+def test_metrics(client):
+    """/metrics reuses the /health snapshot and stays 200 when ready."""
+    resp = client.get("/metrics")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ready"
+    assert body["queue_depth"] == 0
+    assert body["inflight"] == 0
+    assert body["max_queue_size"] == settings.max_queue_size
+    assert body["max_batch_size"] == settings.max_batch_size
+    assert "backend" in body
+    assert "device" in body
+
+
+def test_metrics_stays_200_when_not_ready(client, monkeypatch):
+    """/metrics is a scrape endpoint, not a readiness probe."""
+    monkeypatch.setattr(app.state.batcher, "is_running", lambda: False)
+    resp = client.get("/metrics")
+
+    assert resp.status_code == 200
     assert resp.json()["status"] == "not ready"
 
 
