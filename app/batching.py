@@ -1,7 +1,30 @@
 import asyncio
+import time
+from dataclasses import dataclass
+
 from sentence_transformers import SentenceTransformer
 
 from .model import predict
+
+
+@dataclass(frozen=True)
+class EmbedBatchResult:
+    """Embeddings plus per-request batcher timings.
+
+    ttft_ms: enqueue -> encode start (queue wait + batch collection).
+    ttfr_ms: enqueue -> embeddings ready (ttft + encode).
+    """
+
+    embeddings: list[list[float]]
+    ttft_ms: float
+    ttfr_ms: float
+
+
+@dataclass
+class _Queued:
+    texts: list[str]
+    future: asyncio.Future
+    enqueued_at: float
 
 
 class QueueFullError(Exception):
@@ -59,9 +82,9 @@ class DynamicBatcher:
             pass
         try:
             while not self._queue.empty():
-                texts, future = self._queue.get_nowait()
-                if not future.done():
-                    future.set_exception(asyncio.CancelledError)
+                item = self._queue.get_nowait()
+                if not item.future.done():
+                    item.future.set_exception(asyncio.CancelledError)
         except asyncio.QueueEmpty:
             pass
 
@@ -77,7 +100,7 @@ class DynamicBatcher:
         """Number of accepted requests still awaiting their result."""
         return self._inflight
 
-    async def submit(self, texts: list[str]) -> list[list[float]]:
+    async def submit(self, texts: list[str]) -> EmbedBatchResult:
         """Submit a request for batched inference. Called by the /embed endpoint.
 
         Rejects immediately with QueueFullError when the queue is at capacity (backpressure),
@@ -86,7 +109,7 @@ class DynamicBatcher:
         loop = asyncio.get_event_loop()
         future = loop.create_future()
         try:
-            self._queue.put_nowait((texts, future))
+            self._queue.put_nowait(_Queued(texts, future, time.perf_counter()))
         except asyncio.QueueFull:
             raise QueueFullError("request queue is full")
         self._inflight += 1
@@ -112,25 +135,33 @@ class DynamicBatcher:
 
             # flatten texts
             all_texts, sizes = [], [0]
-            for texts, _ in batch:
-                all_texts.extend(texts)
-                sizes.append(sizes[-1] + len(texts))
+            for item in batch:
+                all_texts.extend(item.texts)
+                sizes.append(sizes[-1] + len(item.texts))
 
             # run inference: encode the whole aggregated batch in one pass (batch_size =
             # max_batch_size), instead of model.encode's hidden default of 32.
             loop = asyncio.get_event_loop()
+            encode_started = time.perf_counter()
             try:
                 all_embeddings = await loop.run_in_executor(
                     None, predict, self._model, all_texts, self._max_batch_size
                 )
+                encode_finished = time.perf_counter()
 
                 # split results back and resolve futures (skip ones already timed out/cancelled)
-                for idx, (_, future) in enumerate(batch):
-                    if not future.done():
-                        future.set_result(all_embeddings[sizes[idx]:sizes[idx+1]])
+                for idx, item in enumerate(batch):
+                    if not item.future.done():
+                        item.future.set_result(
+                            EmbedBatchResult(
+                                embeddings=all_embeddings[sizes[idx] : sizes[idx + 1]],
+                                ttft_ms=round((encode_started - item.enqueued_at) * 1000, 2),
+                                ttfr_ms=round((encode_finished - item.enqueued_at) * 1000, 2),
+                            )
+                        )
 
             except Exception as e:
                 # to handle raise in predict()
-                for _, future in batch:
-                    if not future.done():
-                        future.set_exception(e)
+                for item in batch:
+                    if not item.future.done():
+                        item.future.set_exception(e)

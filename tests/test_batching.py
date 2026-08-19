@@ -21,8 +21,10 @@ async def test_size_trigger_flush(make_model):
     finally:
         await batcher.stop()
 
-    assert results[0] == make_model().encode(["a"]).tolist()
-    assert results[1] == make_model().encode(["b"]).tolist()
+    assert results[0].embeddings == make_model().encode(["a"]).tolist()
+    assert results[1].embeddings == make_model().encode(["b"]).tolist()
+    for result in results:
+        assert result.ttfr_ms >= result.ttft_ms >= 0
 
 
 async def test_time_trigger_flush(make_model):
@@ -34,7 +36,10 @@ async def test_time_trigger_flush(make_model):
     finally:
         await batcher.stop()
 
-    assert result == make_model().encode(["solo"]).tolist()
+    assert result.embeddings == make_model().encode(["solo"]).tolist()
+    assert result.ttfr_ms >= result.ttft_ms >= 0
+    # time trigger waits ~max_wait_ms before encode starts
+    assert result.ttft_ms >= 20
 
 
 async def test_request_response_mapping(make_model):
@@ -51,7 +56,8 @@ async def test_request_response_mapping(make_model):
 
     model = make_model()
     for req, res in zip(requests, results):
-        assert res == model.encode(req).tolist()
+        assert res.embeddings == model.encode(req).tolist()
+        assert res.ttfr_ms >= res.ttft_ms >= 0
 
 
 async def test_encode_uses_max_batch_size(make_model):
@@ -154,7 +160,8 @@ async def test_request_timeout(make_model):
         gate.set()  # let the stuck inference finish; the worker skips the cancelled future
 
         result = await asyncio.wait_for(batcher.submit(["after"]), timeout=5)
-        assert result == make_model().encode(["after"]).tolist()
+        assert result.embeddings == make_model().encode(["after"]).tolist()
+        assert result.ttfr_ms >= result.ttft_ms >= 0
     finally:
         gate.set()
         await batcher.stop()

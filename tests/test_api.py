@@ -30,6 +30,10 @@ def test_landing(client):
     body = resp.text
     for path in ("/health", "/metrics", "/embed", "/docs", "/redoc", "/openapi.json"):
         assert path in body
+    assert 'id="runtime"' in body
+    assert "Server status" in body
+    assert "queue_depth" in body
+    assert "ttft_ms" in body
 
 
 def test_health(client):
@@ -103,6 +107,7 @@ def test_embed(client, make_model):
     assert body["dim"] == 4
     assert len(body["embeddings"]) == 2
     assert body["embeddings"] == make_model().encode(["hello", "world"]).tolist()
+    assert body["ttfr_ms"] >= body["ttft_ms"] >= 0
 
 
 def test_embed_rejects_empty_texts(client):

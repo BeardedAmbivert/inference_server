@@ -133,9 +133,11 @@ async def metrics():
 async def embed_endpoint(body: EmbedRequest):
     """Generate embeddings for input texts.
 
-    Input validation failures return 422 (handled by Pydantic). Under load the batcher may
-    reject with 503 (queue full) or 504 (timeout); unexpected inference errors return a
-    sanitized 500 (the traceback is logged server-side, not leaked to the client).
+    ttft_ms is enqueue -> encode start (queue wait + batch collection). ttfr_ms is
+    enqueue -> embeddings ready. Input validation failures return 422 (handled by
+    Pydantic). Under load the batcher may reject with 503 (queue full) or 504 (timeout);
+    unexpected inference errors return a sanitized 500 (the traceback is logged
+    server-side, not leaked to the client).
     """
     try:
         result = await app.state.batcher.submit(body.texts)
@@ -147,7 +149,9 @@ async def embed_endpoint(body: EmbedRequest):
         logger.exception("inference failed")
         raise HTTPException(status_code=500, detail="inference failed")
     return {
-        "embeddings": result,
+        "embeddings": result.embeddings,
         "dim": app.state.model.get_sentence_embedding_dimension(),
         "num_texts": len(body.texts),
+        "ttft_ms": result.ttft_ms,
+        "ttfr_ms": result.ttfr_ms,
     }

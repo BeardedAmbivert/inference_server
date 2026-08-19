@@ -11,13 +11,13 @@
       --ink: #1c1917;
       --muted: #57534e;
       --line: #e7e5e4;
-      --accent: #c4a35a;
       --get: #0f766e;
       --post: #1d4ed8;
       --ok: #15803d;
       --bad: #b91c1c;
     }
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body {
       margin: 0;
       font: 16px/1.5 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
@@ -43,6 +43,7 @@
       align-items: center;
       margin-bottom: 28px;
     }
+    .runtime-actions { margin-bottom: 14px; }
     .pill {
       display: inline-flex;
       align-items: center;
@@ -61,7 +62,7 @@
     }
     .dot.ok { background: var(--ok); }
     .dot.bad { background: var(--bad); }
-    a.btn {
+    a.btn, button.btn {
       color: var(--ink);
       text-decoration: none;
       border: 1px solid var(--ink);
@@ -69,6 +70,8 @@
       border-radius: 8px;
       padding: 6px 12px;
       font-size: 0.9rem;
+      cursor: pointer;
+      font: inherit;
     }
     a.btn.primary {
       background: var(--ink);
@@ -82,6 +85,15 @@
       color: var(--muted);
       margin: 0 0 10px;
     }
+    .head-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .head-row h2 { margin: 0; }
+    .note { color: var(--muted); font-size: 0.82rem; }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -111,9 +123,7 @@
     .method.get { background: var(--get); }
     .method.post { background: var(--post); }
     a { color: #1d4ed8; }
-    textarea, button {
-      font: inherit;
-    }
+    textarea { font: inherit; }
     textarea {
       width: 100%;
       min-height: 88px;
@@ -123,7 +133,7 @@
       background: var(--card);
       resize: vertical;
     }
-    button {
+    #embed-btn {
       margin-top: 10px;
       background: var(--ink);
       color: var(--bg);
@@ -131,8 +141,9 @@
       border-radius: 8px;
       padding: 8px 14px;
       cursor: pointer;
+      font: inherit;
     }
-    button:disabled { opacity: 0.5; cursor: default; }
+    #embed-btn:disabled { opacity: 0.5; cursor: default; }
     pre {
       background: #1c1917;
       color: #f5f5f4;
@@ -142,17 +153,55 @@
       font-size: 0.82rem;
       margin: 0 0 28px;
     }
-    #embed-out {
-      margin-top: 12px;
+    .card {
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: 10px;
-      padding: 12px;
-      font-size: 0.82rem;
-      white-space: pre-wrap;
-      display: none;
+      padding: 14px 16px;
+      margin-bottom: 28px;
     }
+    .kv {
+      display: grid;
+      grid-template-columns: minmax(140px, 180px) 1fr;
+      gap: 6px 16px;
+      font-size: 0.92rem;
+    }
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; word-break: break-word; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      margin: 12px 0;
+    }
+    .metric {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .metric .label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .metric .value {
+      font-size: 1.35rem;
+      font-weight: 650;
+      letter-spacing: -0.03em;
+      margin-top: 4px;
+    }
+    .metric .hint { font-size: 0.78rem; color: var(--muted); }
+    #embed-out { display: none; }
     #embed-out.show { display: block; }
+    .vec {
+      margin: 0;
+      font-size: 0.82rem;
+      background: var(--bg);
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
     .try { margin-bottom: 28px; }
     footer { color: var(--muted); font-size: 0.85rem; }
   </style>
@@ -162,14 +211,26 @@
     <h1>Embedding Inference Server</h1>
     <p class="lede">
       FastAPI MiniLM embeddings with async dynamic batching.
-      This page is the Space landing; the interactive API explorer is Swagger.
+      Server status lives on this page. Swagger is the interactive API explorer.
     </p>
     <div class="row">
       <span class="pill"><span id="status-dot" class="dot"></span><span id="status-text">checking health</span></span>
+      <a class="btn" href="#runtime">Server status</a>
+      <a class="btn" href="#embed">Try /embed</a>
       <a class="btn primary" href="/docs">Open Swagger</a>
       <a class="btn" href="/redoc">ReDoc</a>
-      <a class="btn" href="/health">/health</a>
-      <a class="btn" href="/metrics">/metrics</a>
+    </div>
+
+    <div class="head-row" id="runtime">
+      <h2>Server status</h2>
+      <span class="note">Live snapshot from GET /health.</span>
+    </div>
+    <div class="card">
+      <div class="row runtime-actions">
+        <span class="pill"><span id="runtime-dot" class="dot"></span><span id="runtime-status">loading</span></span>
+        <button class="btn" id="runtime-refresh" type="button">Refresh</button>
+      </div>
+      <dl class="kv mono" id="runtime-kv"></dl>
     </div>
 
     <h2>Endpoints</h2>
@@ -185,18 +246,18 @@
         </tr>
         <tr>
           <td><span class="method get">GET</span></td>
-          <td class="mono"><a href="/health">/health</a></td>
-          <td>Readiness probe. 200 when the model and batch worker are up, else 503.</td>
+          <td class="mono"><a href="#runtime">/health</a></td>
+          <td>Readiness probe. This panel; JSON at /health (200 ready, else 503).</td>
         </tr>
         <tr>
           <td><span class="method get">GET</span></td>
-          <td class="mono"><a href="/metrics">/metrics</a></td>
-          <td>Same snapshot as /health, always 200.</td>
+          <td class="mono">/metrics</td>
+          <td>Unused JSON alias of the /health snapshot (always 200).</td>
         </tr>
         <tr>
           <td><span class="method post">POST</span></td>
-          <td class="mono">/embed</td>
-          <td>Embed a JSON list of texts. Returns 384-d vectors.</td>
+          <td class="mono"><a href="#embed">/embed</a></td>
+          <td>Embed texts. Returns vectors plus ttft_ms and ttfr_ms.</td>
         </tr>
         <tr>
           <td><span class="method get">GET</span></td>
@@ -216,11 +277,30 @@
       </tbody>
     </table>
 
-    <h2>Try POST /embed</h2>
+    <h2 id="embed">Try POST /embed</h2>
     <div class="try">
       <textarea id="texts" spellcheck="false">hello world</textarea>
       <button id="embed-btn" type="button">Embed</button>
-      <div id="embed-out" class="mono"></div>
+      <div id="embed-out" class="card">
+        <div class="metrics">
+          <div class="metric">
+            <div class="label">TTFT</div>
+            <div class="value mono" id="out-ttft">-</div>
+            <div class="hint">enqueue to encode start</div>
+          </div>
+          <div class="metric">
+            <div class="label">TTFR</div>
+            <div class="value mono" id="out-ttfr">-</div>
+            <div class="hint">enqueue to embeddings ready</div>
+          </div>
+          <div class="metric">
+            <div class="label">texts</div>
+            <div class="value mono" id="out-n">-</div>
+            <div class="hint" id="out-dim">dim</div>
+          </div>
+        </div>
+        <pre class="vec mono" id="out-vec"></pre>
+      </div>
     </div>
 
     <h2>curl</h2>
@@ -235,25 +315,59 @@
     </footer>
   </main>
   <script>
+    const FIELDS = [
+      "status", "model", "device", "backend", "model_loaded",
+      "worker_alive", "queue_depth", "inflight", "max_queue_size", "max_batch_size",
+    ];
     const statusDot = document.getElementById("status-dot");
     const statusText = document.getElementById("status-text");
+    const runtimeDot = document.getElementById("runtime-dot");
+    const runtimeStatus = document.getElementById("runtime-status");
+    const runtimeKv = document.getElementById("runtime-kv");
+
+    function fmt(value) {
+      if (value === null || value === undefined || value === "") return "null";
+      if (typeof value === "boolean") return value ? "true" : "false";
+      return String(value);
+    }
+
+    function renderRuntime(ok, body) {
+      const ready = ok && body.status === "ready";
+      statusDot.className = "dot " + (ready ? "ok" : "bad");
+      runtimeDot.className = "dot " + (ready ? "ok" : "bad");
+      const bits = [body.status || (ok ? "ready" : "not ready")];
+      if (body.device) bits.push(body.device);
+      if (body.model) bits.push(String(body.model).split("/").pop());
+      statusText.textContent = bits.join(" · ");
+      runtimeStatus.textContent = ok ? "GET /health 200" : "GET /health 503";
+      runtimeKv.replaceChildren();
+      for (const key of FIELDS) {
+        const dt = document.createElement("dt");
+        dt.textContent = key;
+        const dd = document.createElement("dd");
+        dd.textContent = fmt(body[key]);
+        runtimeKv.append(dt, dd);
+      }
+    }
+
+    function loadRuntime() {
+      return fetch("/health")
+        .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+        .then(({ ok, body }) => renderRuntime(ok, body))
+        .catch(() => {
+          statusDot.className = "dot bad";
+          runtimeDot.className = "dot bad";
+          statusText.textContent = "health check failed";
+          runtimeStatus.textContent = "health check failed";
+        });
+    }
+
+    document.getElementById("runtime-refresh").addEventListener("click", loadRuntime);
+    loadRuntime();
+    setInterval(loadRuntime, 3000);
+
     const out = document.getElementById("embed-out");
     const btn = document.getElementById("embed-btn");
-
-    fetch("/health")
-      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
-      .then(({ ok, body }) => {
-        statusDot.className = "dot " + (ok ? "ok" : "bad");
-        const bits = [body.status || (ok ? "ready" : "not ready")];
-        if (body.device) bits.push(body.device);
-        if (body.model) bits.push(body.model.split("/").pop());
-        statusText.textContent = bits.join(" · ");
-      })
-      .catch(() => {
-        statusDot.className = "dot bad";
-        statusText.textContent = "health check failed";
-      });
-
     btn.addEventListener("click", async () => {
       const lines = document.getElementById("texts").value
         .split("\n")
@@ -261,8 +375,11 @@
         .filter(Boolean);
       if (!lines.length) return;
       btn.disabled = true;
-      out.className = "mono show";
-      out.textContent = "running…";
+      out.classList.add("show");
+      document.getElementById("out-vec").textContent = "running…";
+      document.getElementById("out-ttft").textContent = "-";
+      document.getElementById("out-ttfr").textContent = "-";
+      document.getElementById("out-n").textContent = "-";
       try {
         const resp = await fetch("/embed", {
           method: "POST",
@@ -271,19 +388,21 @@
         });
         const body = await resp.json();
         if (!resp.ok) {
-          out.textContent = JSON.stringify(body, null, 2);
+          document.getElementById("out-vec").textContent = JSON.stringify(body, null, 2);
           return;
         }
-        const preview = (body.embeddings || []).map((vec) => {
+        document.getElementById("out-ttft").textContent = body.ttft_ms.toFixed(2) + " ms";
+        document.getElementById("out-ttfr").textContent = body.ttfr_ms.toFixed(2) + " ms";
+        document.getElementById("out-n").textContent = String(body.num_texts);
+        document.getElementById("out-dim").textContent = "dim " + body.dim;
+        const preview = (body.embeddings || []).map((vec, i) => {
           const head = vec.slice(0, 8).map((x) => Number(x).toFixed(4));
-          return "[" + head.join(", ") + ", …] (" + vec.length + "d)";
+          return "t" + i + "  [" + head.join(", ") + ", …]  " + vec.length + "d";
         });
-        out.textContent =
-          "num_texts: " + body.num_texts + "\n" +
-          "dim: " + body.dim + "\n" +
-          preview.join("\n");
+        document.getElementById("out-vec").textContent = preview.join("\n");
+        loadRuntime();
       } catch (err) {
-        out.textContent = String(err);
+        document.getElementById("out-vec").textContent = String(err);
       } finally {
         btn.disabled = false;
       }

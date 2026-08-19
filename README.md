@@ -237,7 +237,7 @@ curl -X POST http://localhost:7860/embed \
 
 ### `GET /`
 
-HTML landing page used by the Hugging Face Spaces App tab. Lists `/health`, `/metrics`, `/embed`, `/docs`, `/redoc`, and `/openapi.json`. Not included in the OpenAPI schema.
+HTML landing page used by the Hugging Face Spaces App tab. Lists the public endpoints and renders a live server-status snapshot from `GET /health`. Not included in the OpenAPI schema.
 
 Interactive API explorer: [`/docs`](https://beardedambivert-inference-server.hf.space/docs) (Swagger) and [`/redoc`](https://beardedambivert-inference-server.hf.space/redoc).
 
@@ -284,11 +284,16 @@ Example response, with the embedding shortened for readability:
 {
   "embeddings": [[0.01, 0.02, 0.03]],
   "dim": 384,
-  "num_texts": 1
+  "num_texts": 1,
+  "ttft_ms": 12.4,
+  "ttfr_ms": 48.1
 }
 ```
 
 The `embeddings` array contains one embedding vector per input text.
+
+- `ttft_ms`: enqueue to encode start (queue wait + batch collection).
+- `ttfr_ms`: enqueue to embeddings ready (`ttft_ms` plus encode).
 
 Error responses:
 

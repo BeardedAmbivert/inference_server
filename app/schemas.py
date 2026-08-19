@@ -37,3 +37,5 @@ class EmbedResponse(BaseModel):
     embeddings: list[list[float]]
     dim: int | None
     num_texts: int
+    ttft_ms: float
+    ttfr_ms: float
