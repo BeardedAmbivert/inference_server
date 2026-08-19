@@ -42,6 +42,35 @@ What this study shows:
 1. **Two regimes.** Short queries are overhead-bound (packing texts/request dominates). Long docs + large batches are compute-bound (batch size and device start to matter; MPS wins only here, +16% at bs 512).
 2. **Dynamic INT8 lost.** 4× smaller on disk, slower on short queries, and 15.4× slower than fp32 on a 128-doc batch (39.4 s vs 2.55 s). The earlier "INT8 will make ONNX win" hypothesis is falsified for dynamic quant on this hardware.
 
+## Quality (fp32 vs INT8, 2026-08-19)
+
+Speed-only INT8 is an incomplete serving claim. `scripts/eval_quality.py` encodes the BeIR/nfcorpus **test** split (323 queries, 3633 corpus docs, 12,334 qrels) on CPU with the production `model.encode` path and compares each ONNX graph to PyTorch.
+
+JSON: [`quality-nfcorpus.json`](quality-nfcorpus.json). Machine: macOS 26.6.1, Apple Silicon (arm64).
+
+**Cosine drift vs pytorch** (higher cosine / overlap is better):
+
+| Backend | queries | corpus | overall | p05 | min | mean angle | top-1 overlap | top-10 overlap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| onnx-fp32 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 0.08° | 0.997 | 1.000 |
+| onnx-int8 | 0.961 | 0.949 | 0.950 | 0.927 | 0.855 | 18.1° | 0.693 | 0.757 |
+
+**Retrieval** (cosine ranking, L2-normalized embeddings):
+
+| Backend | nDCG@10 | nDCG@100 | recall@10 | recall@100 | MRR@10 | Δ nDCG@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| pytorch | 0.317 | 0.301 | 0.155 | 0.311 | 0.508 | - |
+| onnx-fp32 | 0.317 | 0.300 | 0.155 | 0.312 | 0.506 | -0.001 |
+| onnx-int8 | 0.308 | 0.293 | 0.152 | 0.299 | 0.508 | -0.009 |
+
+What this study shows:
+
+1. **ONNX fp32 is a drop-in.** Mean cosine 1.000, nDCG@10 within 0.001 of PyTorch. The O3 export does not change retrieval.
+2. **INT8 moves vectors, not (much) rankings.** Mean angular error 18°, and 31% of queries get a different nearest corpus neighbor. nDCG@10 only drops 0.9 points (0.317 → 0.308) because nfcorpus has many relevant docs per query; shuffled neighbors often stay relevant.
+3. **Together with the speed study:** dynamic INT8 is 4× smaller, slower, geometrically drifted, and still almost as good at retrieval. Ship fp32 unless disk is the constraint.
+
+`--qa` exits 1 if onnx-fp32 mean cosine < 0.995 or nDCG@10 drops > 0.005, or if INT8 mean cosine < 0.94 or nDCG@10 drops > 0.015. Metric math is unit-tested in `tests/test_quality_metrics.py` (no model download).
+
 ## Earlier synthetic matrix (2026-06-04)
 
 Identical 3-word inputs, one text per request, 500 measured / 50 warmup. Isolates the batcher. JSON: `naive-*.json`, `pytorch-*-batch*-c*.json`, `onnx-cpu-batch*-c32.json`.
@@ -121,6 +150,10 @@ uv run python scripts/run_matrix.py --group latency
 uv run python scripts/run_matrix.py --group throughput --filter onnx-int8
 uv run python scripts/run_matrix.py --group legacy        # original 16 synthetic runs
 uv run python scripts/run_matrix.py --dry-run
+
+# quality (direct encode, no server): cosine drift + nfcorpus nDCG/recall
+uv run python scripts/eval_quality.py
+uv run python scripts/eval_quality.py --qa
 ```
 
 ## Start the Server

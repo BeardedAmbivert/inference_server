@@ -32,6 +32,7 @@ Highlights:
 - Encode batch equals `MAX_BATCH_SIZE` (not SentenceTransformers' hidden default of 32).
 - Docker configuration for CPU deployment and Hugging Face Spaces.
 - Benchmark tooling for synthetic and BeIR/nfcorpus workloads (short queries vs long docs).
+- Quality eval for the same backends: cosine drift vs PyTorch, nfcorpus nDCG/recall, and a `--qa` gate.
 
 ## Why This Exists
 
@@ -110,6 +111,35 @@ Short medical queries (median 17 chars) vs long corpus docs (median ~1.6k chars)
 - Long docs + large batches are **compute-bound**. Throughput rises with batch size, and MPS finally wins (+16% at bs 512).
 - Dynamic INT8 is **slower**, not faster: 4× smaller on disk, slower on short queries, and every large-batch long-doc run timed out (a 128-doc batch was 15.4× slower than fp32). The "INT8 will make ONNX win" hypothesis is falsified for dynamic quant on this hardware.
 
+### Quality (fp32 vs INT8)
+
+Speed is not the whole serving claim. `scripts/eval_quality.py` encodes the BeIR/nfcorpus **test** split (323 queries, 3633 docs) with the same `model.encode` path the server uses, then reports (1) cosine drift vs PyTorch CPU and (2) cosine-ranking nDCG/recall.
+
+**Cosine drift vs pytorch** (higher is better):
+
+| Backend | queries | corpus | overall | p05 | min | mean angle | top-1 overlap | top-10 overlap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| onnx-fp32 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 0.08° | 0.997 | 1.000 |
+| onnx-int8 | 0.961 | 0.949 | 0.950 | 0.927 | 0.855 | 18.1° | 0.693 | 0.757 |
+
+**nfcorpus test retrieval:**
+
+| Backend | nDCG@10 | nDCG@100 | recall@10 | recall@100 | MRR@10 | Δ nDCG@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| pytorch | 0.317 | 0.301 | 0.155 | 0.311 | 0.508 | - |
+| onnx-fp32 | 0.317 | 0.300 | 0.155 | 0.312 | 0.506 | -0.001 |
+| onnx-int8 | 0.308 | 0.293 | 0.152 | 0.299 | 0.508 | -0.009 |
+
+- O3 ONNX fp32 is a drop-in for PyTorch: cosine 1.000, nDCG@10 within 0.001.
+- Dynamic INT8 **does** move the embedding space (mean 18° angular error, top-1 neighbor changes on 31% of queries) but **does not** break retrieval: nDCG@10 drops 0.9 points. Geometric drift without a matching IR collapse is the whole point of measuring both.
+- `--qa` fails the run if onnx-fp32 mean cosine < 0.995 or nDCG@10 drops > 0.005, or if INT8 mean cosine < 0.94 or nDCG@10 drops > 0.015.
+
+```bash
+uv sync --extra bench
+uv run python scripts/eval_quality.py       # writes benchmarks/quality-nfcorpus.json
+uv run python scripts/eval_quality.py --qa  # same, exit 1 if a gate fails
+```
+
 ### Synthetic batching sweep
 
 Identical 3-word inputs, concurrency 32. Isolates the batcher from the compute backend.
@@ -130,6 +160,7 @@ uv sync --extra bench
 uv run python scripts/prepare_dataset.py          # nfcorpus pools (gitignored)
 uv run python scripts/run_matrix.py               # latency + throughput (24 runs)
 uv run python scripts/run_matrix.py --group legacy
+uv run python scripts/eval_quality.py --qa        # cosine drift + nfcorpus nDCG (needs ONNX artifacts)
 ```
 
 ## Design Decisions
@@ -141,6 +172,7 @@ uv run python scripts/run_matrix.py --group legacy
 - ONNX Runtime is opt-in (`BACKEND=onnx`). The graph is selected with `ONNX_FILE_NAME` (default `onnx/model_O3.onnx`; set `onnx/model_int8.onnx` after `scripts/quantize_onnx.py`).
 - The worker passes `batch_size=max_batch_size` into `model.encode` so large batches are not silently chunked at 32.
 - Performance claims are from measured benches on this hardware, including the INT8-negative result.
+- Quality claims use the same encode path as production (`app.model.load_model` / `model.encode`), not a separate embedding library. PyTorch CPU is the reference; ONNX fp32 and dynamic INT8 are compared on cosine drift and nfcorpus retrieval.
 
 ## Failure Handling & Limitations
 
@@ -160,8 +192,8 @@ The limits and log level are configurable via environment variables (see `app/co
 Current limitations:
 
 - The worker model is single-process and single-batcher.
-- ONNX mode requires an exported directory under `models/minilm-onnx`. Dynamic INT8 is implemented and measured; it is not faster on this hardware.
-- nfcorpus pools under `benchmarks/data/` are gitignored; regenerate with `scripts/prepare_dataset.py`.
+- ONNX mode requires an exported directory under `models/minilm-onnx`. Dynamic INT8 is implemented and measured; it is not faster on this hardware, and cosine drift vs PyTorch is real even though nfcorpus nDCG holds.
+- nfcorpus pools under `benchmarks/data/` are gitignored; regenerate with `scripts/prepare_dataset.py`. The quality eval loads BeIR/nfcorpus + qrels directly (not those sampled pools) because retrieval needs document ids.
 
 ## Future Improvements
 

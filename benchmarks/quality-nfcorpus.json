@@ -1,0 +1,163 @@
+{
+  "timestamp_utc": "2026-08-19T17:46:59.954747+00:00",
+  "python_version": "3.12.11",
+  "platform": "macOS-26.6.1-arm64-arm-64bit",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "device": "cpu",
+  "dataset": "BeIR/nfcorpus",
+  "qrels_split": "test",
+  "n_queries": 323,
+  "n_docs": 3633,
+  "n_qrels": 12334,
+  "ks": [
+    10,
+    100
+  ],
+  "reference": "pytorch",
+  "backends": {
+    "pytorch": {
+      "encode": {
+        "batch_size": 32,
+        "encode_s": 22.43
+      },
+      "retrieval": {
+        "n_queries": 323.0,
+        "ndcg@10": 0.31727151366759654,
+        "recall@10": 0.15498797328057845,
+        "mrr@10": 0.5076539387684899,
+        "ndcg@100": 0.30077969346997374,
+        "recall@100": 0.3114503860264584,
+        "mrr@100": 0.5132351043559762
+      },
+      "drift": {}
+    },
+    "onnx-fp32": {
+      "encode": {
+        "batch_size": 32,
+        "encode_s": 66.58
+      },
+      "retrieval": {
+        "n_queries": 323.0,
+        "ndcg@10": 0.31655133622211984,
+        "recall@10": 0.15498797328057845,
+        "mrr@10": 0.5061059511523908,
+        "ndcg@100": 0.30017811704200315,
+        "recall@100": 0.31168853796739676,
+        "mrr@100": 0.5116778776026324
+      },
+      "drift": {
+        "queries": {
+          "cosine_count": 323.0,
+          "cosine_mean": 0.9999995151337129,
+          "cosine_p50": 0.9999995355429886,
+          "cosine_p05": 0.9999992745302921,
+          "cosine_min": 0.9999990821781148,
+          "cosine_max": 0.9999997329025103,
+          "angle_deg_count": 323.0,
+          "angle_deg_mean": 0.055973114500520046,
+          "angle_deg_p50": 0.055221780927108936,
+          "angle_deg_p05": 0.04541637837602878,
+          "angle_deg_min": 0.04187670890198766,
+          "angle_deg_max": 0.07762772666629071
+        },
+        "corpus": {
+          "cosine_count": 3633.0,
+          "cosine_mean": 0.9999989684181625,
+          "cosine_p50": 0.9999989906654904,
+          "cosine_p05": 0.9999986056810294,
+          "cosine_min": 0.9999976378386873,
+          "cosine_max": 0.9999994460476248,
+          "angle_deg_count": 3633.0,
+          "angle_deg_mean": 0.08191312498329248,
+          "angle_deg_p50": 0.08140577737389208,
+          "angle_deg_p05": 0.06989379821678934,
+          "angle_deg_min": 0.06030785260284068,
+          "angle_deg_max": 0.12453530591658966
+        },
+        "overall": {
+          "cosine_count": 3956.0,
+          "cosine_mean": 0.9999990130564647,
+          "cosine_p50": 0.9999990097418827,
+          "cosine_p05": 0.9999986163988428,
+          "cosine_min": 0.9999976378386873,
+          "cosine_max": 0.9999997329025103,
+          "angle_deg_count": 3956.0,
+          "angle_deg_mean": 0.07979517165014399,
+          "angle_deg_p50": 0.08063282402529307,
+          "angle_deg_p05": 0.05770201448866394,
+          "angle_deg_min": 0.04187670890198766,
+          "angle_deg_max": 0.12453530591658966
+        },
+        "rank_agreement": {
+          "n_queries": 323.0,
+          "top1_overlap": 0.9969040247678018,
+          "top10_overlap": 0.9996904024767801
+        }
+      }
+    },
+    "onnx-int8": {
+      "encode": {
+        "batch_size": 8,
+        "encode_s": 139.25
+      },
+      "retrieval": {
+        "n_queries": 323.0,
+        "ndcg@10": 0.3080506508946563,
+        "recall@10": 0.15189088749209076,
+        "mrr@10": 0.5082313627205268,
+        "ndcg@100": 0.2926981739391802,
+        "recall@100": 0.29894458101616356,
+        "mrr@100": 0.5144623845059315
+      },
+      "drift": {
+        "queries": {
+          "cosine_count": 323.0,
+          "cosine_mean": 0.9611902287479199,
+          "cosine_p50": 0.963246956408129,
+          "cosine_p05": 0.9401701243955325,
+          "cosine_min": 0.9205629240410373,
+          "cosine_max": 0.9818483001785975,
+          "angle_deg_count": 323.0,
+          "angle_deg_mean": 15.86559606495723,
+          "angle_deg_p50": 15.582009920800713,
+          "angle_deg_p05": 12.677201897218426,
+          "angle_deg_min": 10.933404346420382,
+          "angle_deg_max": 22.9914831911608
+        },
+        "corpus": {
+          "cosine_count": 3633.0,
+          "cosine_mean": 0.9486537997735082,
+          "cosine_p50": 0.9501513686882138,
+          "cosine_p05": 0.9264298984369368,
+          "cosine_min": 0.8547238127992947,
+          "cosine_max": 0.9787495063110978,
+          "angle_deg_count": 3633.0,
+          "angle_deg_mean": 18.313460167377613,
+          "angle_deg_p50": 18.167076677618283,
+          "angle_deg_p05": 15.045030751247916,
+          "angle_deg_min": 11.83298290776458,
+          "angle_deg_max": 31.27076380391284
+        },
+        "overall": {
+          "cosine_count": 3956.0,
+          "cosine_mean": 0.9496773757489214,
+          "cosine_p50": 0.9511051931954738,
+          "cosine_p05": 0.9267160355736879,
+          "cosine_min": 0.8547238127992947,
+          "cosine_max": 0.9818483001785975,
+          "angle_deg_count": 3956.0,
+          "angle_deg_mean": 18.113596642331665,
+          "angle_deg_p50": 17.990972457357707,
+          "angle_deg_p05": 14.5541007012903,
+          "angle_deg_min": 10.933404346420382,
+          "angle_deg_max": 31.27076380391284
+        },
+        "rank_agreement": {
+          "n_queries": 323.0,
+          "top1_overlap": 0.6934984520123839,
+          "top10_overlap": 0.7569659442724458
+        }
+      }
+    }
+  }
+}

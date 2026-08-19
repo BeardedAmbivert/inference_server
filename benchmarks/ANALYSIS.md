@@ -91,6 +91,55 @@ target with VNNI, would be the next experiment - not dynamic quant.
 
 ---
 
+## Quality - does INT8 still retrieve? (2026-08-19)
+
+The speed study falsifies "INT8 is faster." It does not say whether the quantized graph still
+embeds. `scripts/eval_quality.py` runs the production encode path (`app.model.load_model` →
+`model.encode`) on the BeIR/nfcorpus **test** split: 323 queries, 3,633 corpus docs, 12,334 qrels.
+PyTorch CPU is the reference. Both ONNX graphs are compared on:
+
+1. **Cosine drift** of matching rows (short queries vs long corpus docs separately, because
+   SentenceTransformers warns that backend error depends on length).
+2. **Rank agreement** vs PyTorch (does the nearest neighbor stay the same?).
+3. **Retrieval:** nDCG / recall / MRR at 10 and 100 with cosine ranking on L2-normalized vectors.
+   DCG uses the TREC/BEIR gain `2^{rel} - 1`. BeIR's nfcorpus-qrels are binary (`score=1`).
+
+Machine: macOS 26.6.1, Apple Silicon (arm64). JSON: `benchmarks/quality-nfcorpus.json`.
+
+**Cosine drift vs pytorch:**
+
+| Backend | queries | corpus | overall | p05 | min | mean angle | top-1 overlap | top-10 overlap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| onnx-fp32 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 0.08° | 0.997 | 1.000 |
+| onnx-int8 | 0.961 | 0.949 | 0.950 | 0.927 | 0.855 | 18.1° | 0.693 | 0.757 |
+
+**Retrieval:**
+
+| Backend | nDCG@10 | nDCG@100 | recall@10 | recall@100 | MRR@10 | Δ nDCG@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| pytorch | 0.317 | 0.301 | 0.155 | 0.311 | 0.508 | - |
+| onnx-fp32 | 0.317 | 0.300 | 0.155 | 0.312 | 0.506 | -0.001 |
+| onnx-int8 | 0.308 | 0.293 | 0.152 | 0.299 | 0.508 | -0.009 |
+
+1. **ONNX O3 fp32 is numerically a stand-in for PyTorch.** Mean cosine 0.999999, mean angle 0.08°,
+   nDCG@10 0.3166 vs 0.3173. Export/optimization is not a hidden quality regression.
+2. **Dynamic INT8 is a different embedding space that still ranks.** Mean cosine 0.950 (queries
+   0.961, long docs 0.949 - the length split the ST warning predicts). Mean angular error 18°.
+   Top-1 neighbor vs PyTorch matches on only 69% of queries. nDCG@10 drops 0.9 points, recall@10
+   0.155 → 0.152, MRR@10 is flat (0.508). nfcorpus has ~38 relevant docs/query, so a changed
+   nearest neighbor is often still relevant - cosine drift overstates the IR damage.
+3. **The two INT8 results are one claim.** Smaller on disk, slower on this hardware, geometrically
+   drifted, retrieval almost unchanged. A speed-only bench would have stopped at "INT8 lost." The
+   quality bench says *why you might still export it* (disk) and *why you should not* (no speed
+   win, and you do not get PyTorch-identical vectors).
+
+`--qa` is the regression gate: onnx-fp32 mean cosine ≥ 0.995 and nDCG@10 drop ≤ 0.005; INT8 mean
+cosine ≥ 0.94 and nDCG@10 drop ≤ 0.015. Metric functions are unit-tested without downloading the
+model (`tests/test_quality_metrics.py`). The full encode is a local job, not CI - it needs the
+ONNX artifacts, BeIR, and ~4 minutes on this machine.
+
+---
+
 ## Earlier study - synthetic-input batching sweep (kept for comparison)
 
 The original 16-run matrix used identical 3-word synthetic inputs (1 text/request), sweeping
@@ -149,6 +198,10 @@ uv run python scripts/run_matrix.py --group latency       # just one group
 uv run python scripts/run_matrix.py --group throughput --filter onnx-int8
 uv run python scripts/run_matrix.py --group legacy        # the original synthetic matrix
 uv run python scripts/run_matrix.py --dry-run             # print the plan, run nothing
+
+# quality (no server): cosine drift + nfcorpus nDCG/recall, fp32 vs INT8
+uv run python scripts/eval_quality.py
+uv run python scripts/eval_quality.py --qa                # exit 1 if a quality gate fails
 ```
 
 Each run writes `benchmarks/<name>.json` with full metadata (backend, device, batch, concurrency,

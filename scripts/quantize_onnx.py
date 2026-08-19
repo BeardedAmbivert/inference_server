@@ -13,6 +13,9 @@ Output: models/minilm-onnx/onnx/model_int8.onnx
 
 Serve the quantized model:
     ONNX_FILE_NAME=onnx/model_int8.onnx BACKEND=onnx uv run uvicorn app.main:app
+
+Measure quality vs fp32 (cosine drift + nfcorpus nDCG):
+    uv run python scripts/eval_quality.py --qa
 """
 import tempfile
 from contextlib import chdir
